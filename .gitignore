@@ -1,0 +1,38 @@
+# TI CCS / embedded C project gitignore
+
+# Build output directories
+Debug/
+Release/
+
+# Common embedded build artifacts
+*.out
+*.map
+*.hex
+*.bin
+*.obj
+*.o
+*.d
+*.pp
+*.lst
+*.asm
+
+# CCS/TI generated intermediate files
+*.opt
+*.mk
+*.cmd.genlibs
+*_linkInfo.xml
+Event.dot
+
+# IDE user-local files
+.metadata/
+.settings/
+*.launch
+
+# OS/editor noise
+.DS_Store
+Thumbs.db
+*.log
+
+# Keep SysConfig generated files tracked
+!ti_msp_dl_config.c
+!ti_msp_dl_config.h

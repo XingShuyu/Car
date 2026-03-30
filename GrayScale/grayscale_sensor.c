@@ -1,0 +1,81 @@
+#include "grayscale_sensor.h"
+
+
+static void _delay_us(volatile uint32_t us)
+{
+    delay_us(us);
+}
+
+//选择传感器通道 select sensor channel
+static void _select_channel(uint8_t channel)
+{
+    SENSOR_AD0_WRITE((channel >> 0) & 0x01);
+    SENSOR_AD1_WRITE((channel >> 1) & 0x01);
+    SENSOR_AD2_WRITE((channel >> 2) & 0x01);
+}
+
+//读取OUT引脚的值 read the value of OUT pin
+static uint16_t Read_OUT_value(void)
+{
+    return SENSOR_OUT_READ();
+}
+
+//初始化灰度传感器所需的GPIO / init GPIO for grayscale sensor
+void Grayscale_Sensor_Init(void)
+{
+}
+
+//读取所有8个通道的灰度值 read all 8 channels grayscale values
+void Grayscale_Sensor_Read_All(uint16_t* sensor_values)
+{
+    uint8_t i;
+    for (i = 0; i < GRAYSCALE_SENSOR_CHANNELS; i++)
+    {
+        _select_channel(i);
+        _delay_us(50);
+        sensor_values[i] = Read_OUT_value();
+    }
+}
+
+//读取中间四个通道灰度值
+void Grayscale_Sensor_Read_Main(uint16_t* sensor_values)
+{
+    uint8_t i;
+    for (i = 2; i < 6; i++)
+    {
+        _select_channel(i);
+        _delay_us(50);
+        sensor_values[i] = Read_OUT_value();
+    }
+}
+
+//读取两边四个通道灰度值
+void Grayscale_Sensor_Read_Other(uint16_t* sensor_values)
+{
+    uint8_t i;
+    for (i = 0; i < 2; i++)
+    {
+        _select_channel(i);
+        _delay_us(50);
+        sensor_values[i] = Read_OUT_value();
+    }
+    for (i = 6; i < 8; i++)
+    {
+        _select_channel(i);
+        _delay_us(50);
+        sensor_values[i] = Read_OUT_value();
+    }
+}
+
+//读取单个指定通道的灰度值 read single specified channel grayscale value
+uint16_t Grayscale_Sensor_Read_Single(uint8_t channel)
+{
+    if (channel >= GRAYSCALE_SENSOR_CHANNELS)
+    {
+        return 0; // 无效通道 // Invalid channel
+    }
+    _select_channel(channel);
+    _delay_us(50);
+    return Read_OUT_value();
+}
+
