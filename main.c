@@ -66,7 +66,7 @@ int main(void)
      * MSPM0在自动生成的 SYSCFG_DL_init() 中会复位GPIOA，这会导致SWD调试引脚瞬时重置。
      * 如果上电后代码立即执行到这里，SWD连接会被切断，导致下载器无法连接并报错“锁死”。
      * 添加1-2秒的延时，能给调试器留出充足的连接和暂停CPU的时间。
-     */
+     */asdasd
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
