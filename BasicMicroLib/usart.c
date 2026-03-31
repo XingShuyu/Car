@@ -65,6 +65,28 @@ int fputc(int ch, FILE *stream)
     return ch;
 }
 
+// 部分工具链的 printf 会走 __io_putchar
+int __io_putchar(int ch)
+{
+	while (DL_UART_isBusy(UART_0_INST) == true);
+	DL_UART_Main_transmitData(UART_0_INST, (uint8_t)ch);
+	return ch;
+}
+
+// tiarmclang/newlib 常走 _write 系统调用
+int _write(int fd, const char *buf, int len)
+{
+	int i;
+	(void)fd;
+
+	for (i = 0; i < len; i++) {
+		while (DL_UART_isBusy(UART_0_INST) == true);
+		DL_UART_Main_transmitData(UART_0_INST, (uint8_t)buf[i]);
+	}
+
+	return len;
+}
+
 //重定向fputs函数
 //Redirect fputs function
 int fputs(const char* restrict s, FILE* restrict stream) {

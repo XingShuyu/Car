@@ -18,6 +18,7 @@ int main(void)
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+    USART_Init();     // 使能UART中断（接收依赖此步骤）
     
     /* 
      * 修改2（最关键）：必须同时启动两个定时器！
@@ -30,13 +31,12 @@ int main(void)
 
     // 打印启动信息
     printf("MSPM0G3507 D157B Motor Test Start!\r\n");
-    
-    // 修改3：注释掉未使用的 PID 变量，保持代码整洁，消除编译警告
-    // PID garyscalePid = {0};
-    // garyscalePid.p = 1.0f;
-    // garyscalePid.i = 1.0f;
-    // garyscalePid.d = 1.0f;
-    // garyscalePid.i_Max = 100.0f;
+    USART_SendData('a');
+    PID garyscalePid = {0};
+    garyscalePid.p = 1.0f;
+    garyscalePid.i = 1.0f;
+    garyscalePid.d = 1.0f;
+    garyscalePid.i_Max = 100.0f;
 
     while (1)
     {
