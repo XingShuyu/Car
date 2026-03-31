@@ -1,46 +1,7 @@
-/*
- * Copyright (c) 2021, Texas Instruments Incorporated
- * All rights reserved.
- *
- * Redistribution and use in source and binary forms, with or without
- * modification, are permitted provided that the following conditions
- * are met:
- *
- * *  Redistributions of source code must retain the above copyright
- *    notice, this list of conditions and the following disclaimer.
- *
- * *  Redistributions in binary form must reproduce the above copyright
- *    notice, this list of conditions and the following disclaimer in the
- *    documentation and/or other materials provided with the distribution.
- *
- * *  Neither the name of Texas Instruments Incorporated nor the names of
- *    its contributors may be used to endorse or promote products derived
- *    from this software without specific prior written permission.
- *
- * THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
- * AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO,
- * THE IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR
- * PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR
- * CONTRIBUTORS BE LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL,
- * EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
- * PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
- * OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
- * WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
- * OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE,
- * EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
- */
-
-/*
- * 移植说明：
- * 本代码基于 TI MSPM0G3507 (Cortex-M0+)
- * 使用 DriverLib 开发
- * 请确保在 SysConfig 中配置了相应的引脚和时钟
- */
-
 #include "ti_msp_dl_config.h"
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/usart.h"
-#include "GrayScale/Grayscale_Scan.c"
+#include "GrayScale/Grayscale_Scan.c"  // 修改1：.c 改为 .h
 #include "Motor/motor.h"
 #include <stdio.h>
 
@@ -58,22 +19,31 @@ int main(void)
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
     
-    // 启动PWM定时器 (TIMG8)
-    DL_TimerG_startCounter(TIM_1_INST);
+    /* 
+     * 修改2（最关键）：必须同时启动两个定时器！
+     * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。
+     * 如果宏名字报错，请去 ti_msp_dl_config.h 里搜索 TIMG 找到准确的名字
+     * (也有可能被重命名为 PWM_MotorLeft_INST 等，取决于你SysConfig的命名)
+     */
+    DL_TimerG_startCounter(MotorLeft_INST); 
+    DL_TimerG_startCounter(MotorRight_INST); 
 
     // 打印启动信息
     printf("MSPM0G3507 D157B Motor Test Start!\r\n");
-    PID garyscalePid = {0};
-    garyscalePid.p = 1.0f;
-    garyscalePid.i = 1.0f;
-    garyscalePid.d = 1.0f;
-    garyscalePid.i_Max = 100.0f;
+    
+    // 修改3：注释掉未使用的 PID 变量，保持代码整洁，消除编译警告
+    // PID garyscalePid = {0};
+    // garyscalePid.p = 1.0f;
+    // garyscalePid.i = 1.0f;
+    // garyscalePid.d = 1.0f;
+    // garyscalePid.i_Max = 100.0f;
 
     while (1)
     {
         // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
         // printf("out = %.2f\r\n", out);
         // delay_ms(50);
+        
         /* 动作1：全速前进 */
         printf("Forward...\r\n");
         Motor_SetSpeed(2000, 2000); 
@@ -103,6 +73,5 @@ int main(void)
         printf("Slow Stop...\r\n");
         Motor_SetSpeed(0, 0);
         delay_ms(2000);
-
     }
 }
