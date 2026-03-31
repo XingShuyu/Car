@@ -31,11 +31,13 @@ GPIO1.associatedPins.create(2);
 GPIO1.associatedPins[0].$name        = "MotorRight";
 GPIO1.associatedPins[0].assignedPort = "PORTB";
 GPIO1.associatedPins[0].assignedPin  = "10";
+GPIO1.associatedPins[0].initialValue = "SET";
 GPIO1.associatedPins[0].pin.$assign  = "PB10";
 GPIO1.associatedPins[1].$name        = "MotorLeft";
-GPIO1.associatedPins[1].assignedPort = "PORTA";
 GPIO1.associatedPins[1].assignedPin  = "11";
-GPIO1.associatedPins[1].pin.$assign  = "PA11";
+GPIO1.associatedPins[1].initialValue = "SET";
+GPIO1.associatedPins[1].assignedPort = "PORTB";
+GPIO1.associatedPins[1].pin.$assign  = "PB11";
 
 const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
 
@@ -97,6 +99,7 @@ I2C1.sclPinConfig.$name              = "ti_driverlib_gpio_GPIOPinGeneric5";
 
 PWM1.timerCount                         = 3200;
 PWM1.$name                              = "TIM_1";
+PWM1.peripheral.$assign                 = "TIMG8";
 PWM1.peripheral.ccp0Pin.$assign         = "PB21";
 PWM1.peripheral.ccp1Pin.$assign         = "PA30";
 PWM1.PWM_CHANNEL_0.$name                = "ti_driverlib_pwm_PWMTimerCC0";
@@ -118,9 +121,12 @@ SYSCTL.forceDefaultClkConfig = true;
 
 TIMER1.$name = "TIM_0";
 
-UART1.$name             = "UART_0";
-UART1.txPinConfig.$name = "ti_driverlib_gpio_GPIOPinGeneric0";
-UART1.rxPinConfig.$name = "ti_driverlib_gpio_GPIOPinGeneric1";
+UART1.$name                    = "UART_0";
+UART1.enabledInterrupts        = ["RX"];
+UART1.peripheral.rxPin.$assign = "PA11";
+UART1.peripheral.txPin.$assign = "PA10";
+UART1.txPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric0";
+UART1.rxPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric1";
 
 /**
  * Pinmux solution for unlocked pins/peripherals. This ensures that minor changes to the automatic solver in a future
@@ -136,9 +142,6 @@ GPIO3.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO3.associatedPins[2].pin.$suggestSolution = "PB20";
 GPIO3.associatedPins[3].pin.$suggestSolution = "PA14";
 I2C1.peripheral.$suggestSolution             = "I2C0";
-PWM1.peripheral.$suggestSolution             = "TIMG8";
 SYSCTL.peripheral.$suggestSolution           = "SYSCTL";
 TIMER1.peripheral.$suggestSolution           = "TIMA0";
 UART1.peripheral.$suggestSolution            = "UART0";
-UART1.peripheral.rxPin.$suggestSolution      = "PA1";
-UART1.peripheral.txPin.$suggestSolution      = "PA0";

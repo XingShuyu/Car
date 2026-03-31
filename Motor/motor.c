@@ -13,11 +13,11 @@ void Motor_SetSpeed(int16_t left_speed, int16_t right_speed) {
     /*----------------- 处理右轮速度 -----------------*/
     if (right_speed > 0) {
         // 正转：方向引脚置高
-        DL_GPIO_setPins(MotorContor_MotorRight_PORT, MotorContor_MotorRight_PIN);
+        DL_GPIO_setPins(MotorContor_PORT, MotorContor_MotorRight_PIN);
         right_pwm = (uint32_t)right_speed;
     } else if (right_speed < 0) {
         // 反转：方向引脚置低
-        DL_GPIO_clearPins(MotorContor_MotorRight_PORT, MotorContor_MotorRight_PIN);
+        DL_GPIO_clearPins(MotorContor_PORT, MotorContor_MotorRight_PIN);
         right_pwm = (uint32_t)(-right_speed);
     } else {
         right_pwm = 0;
@@ -31,11 +31,11 @@ void Motor_SetSpeed(int16_t left_speed, int16_t right_speed) {
     /*----------------- 处理左轮速度 -----------------*/
     if (left_speed > 0) {
         // 正转：方向引脚置高
-        DL_GPIO_setPins(MotorContor_MotorLeft_PORT, MotorContor_MotorLeft_PIN);
+        DL_GPIO_setPins(MotorContor_PORT, MotorContor_MotorLeft_PIN);
         left_pwm = (uint32_t)left_speed;
     } else if (left_speed < 0) {
         // 反转：方向引脚置低
-        DL_GPIO_clearPins(MotorContor_MotorLeft_PORT, MotorContor_MotorLeft_PIN);
+        DL_GPIO_clearPins(MotorContor_PORT, MotorContor_MotorLeft_PIN);
         left_pwm = (uint32_t)(-left_speed);
     } else {
         left_pwm = 0;
@@ -54,6 +54,6 @@ void Motor_Brake(void) {
     
     // D157B完整刹车逻辑通常是将IN1和IN2设为相同电平。
     // 因为您只有一个方向引脚，这里仅做停止处理。
-    DL_GPIO_clearPins(MotorContor_MotorRight_PORT, MotorContor_MotorRight_PIN);
-    DL_GPIO_clearPins(MotorContor_MotorLeft_PORT, MotorContor_MotorLeft_PIN);
+    DL_GPIO_clearPins(MotorContor_PORT, MotorContor_MotorRight_PIN);
+    DL_GPIO_clearPins(MotorContor_PORT, MotorContor_MotorLeft_PIN);
 }

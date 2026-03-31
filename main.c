@@ -40,24 +40,11 @@
 #include "ti_msp_dl_config.h"
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/usart.h"
+#include "GrayScale/Grayscale_Scan.c"
 #include "Motor/motor.h"
 #include <stdio.h>
 
-// // UART 重定向 fputc
-// int fputc(int ch, FILE *fp) {
-//     DL_UART_transmitData(UART_0_INST, (uint8_t)ch);
-//     while (DL_UART_isBusy(UART_0_INST));
-//     return ch;
-// }
-
-// // 简单的延时函数 (基于TIMA0，粗略延时)
-// void delay_ms(uint32_t ms) {
-//     for (uint32_t i = 0; i < ms; i++) {
-//         // 如果您的系统时钟是32MHz或64MHz，这里需要根据实际情况循环
-//         // 强烈建议使用SysTick或定时器中断来做精准延时
-//         for(volatile uint32_t j=0; j<4000; j++); 
-//     }
-// }
+volatile uint16_t grayscale[8];
 
 int main(void)
 {
@@ -66,7 +53,7 @@ int main(void)
      * MSPM0在自动生成的 SYSCFG_DL_init() 中会复位GPIOA，这会导致SWD调试引脚瞬时重置。
      * 如果上电后代码立即执行到这里，SWD连接会被切断，导致下载器无法连接并报错“锁死”。
      * 添加1-2秒的延时，能给调试器留出充足的连接和暂停CPU的时间。
-     */asdasd
+     */
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
@@ -76,9 +63,17 @@ int main(void)
 
     // 打印启动信息
     printf("MSPM0G3507 D157B Motor Test Start!\r\n");
+    PID garyscalePid = {0};
+    garyscalePid.p = 1.0f;
+    garyscalePid.i = 1.0f;
+    garyscalePid.d = 1.0f;
+    garyscalePid.i_Max = 100.0f;
 
     while (1)
     {
+        // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
+        // printf("out = %.2f\r\n", out);
+        // delay_ms(50);
         /* 动作1：全速前进 */
         printf("Forward...\r\n");
         Motor_SetSpeed(2000, 2000); 
@@ -108,5 +103,6 @@ int main(void)
         printf("Slow Stop...\r\n");
         Motor_SetSpeed(0, 0);
         delay_ms(2000);
+
     }
 }
