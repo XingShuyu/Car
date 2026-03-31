@@ -57,12 +57,14 @@ int main(void)
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+    USART_Init();     // 使能UART中断（接收依赖此步骤）
     
-    // 启动PWM定时器 (TIMG8)
-    DL_TimerG_startCounter(TIM_1_INST);
+    // // 启动PWM定时器 (TIMG8)
+    // DL_TimerG_startCounter(TIM_1_INST);
 
     // 打印启动信息
     printf("MSPM0G3507 D157B Motor Test Start!\r\n");
+    USART_SendData('a');
     PID garyscalePid = {0};
     garyscalePid.p = 1.0f;
     garyscalePid.i = 1.0f;
@@ -71,38 +73,38 @@ int main(void)
 
     while (1)
     {
-        // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
-        // printf("out = %.2f\r\n", out);
-        // delay_ms(50);
-        /* 动作1：全速前进 */
-        printf("Forward...\r\n");
-        Motor_SetSpeed(2000, 2000); 
-        delay_ms(2000);
+        float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
+        printf("out = %.2f\r\n", out);
+        delay_ms(50);
+        // /* 动作1：全速前进 */
+        // printf("Forward...\r\n");
+        // Motor_SetSpeed(2000, 2000); 
+        // delay_ms(2000);
 
-        /* 动作2：停止 */
-        printf("Stop...\r\n");
-        Motor_Brake();
-        delay_ms(1000);
+        // /* 动作2：停止 */
+        // printf("Stop...\r\n");
+        // Motor_Brake();
+        // delay_ms(1000);
 
-        /* 动作3：原地左转 (右轮正转，左轮反转) */
-        printf("Turn Left...\r\n");
-        Motor_SetSpeed(-1500, 1500);
-        delay_ms(2000);
+        // /* 动作3：原地左转 (右轮正转，左轮反转) */
+        // printf("Turn Left...\r\n");
+        // Motor_SetSpeed(-1500, 1500);
+        // delay_ms(2000);
 
-        /* 动作4：原地右转 (左轮正转，右轮反转) */
-        printf("Turn Right...\r\n");
-        Motor_SetSpeed(1500, -1500);
-        delay_ms(2000);
+        // /* 动作4：原地右转 (左轮正转，右轮反转) */
+        // printf("Turn Right...\r\n");
+        // Motor_SetSpeed(1500, -1500);
+        // delay_ms(2000);
 
-        /* 动作5：后退 */
-        printf("Backward...\r\n");
-        Motor_SetSpeed(-2000, -2000);
-        delay_ms(2000);
+        // /* 动作5：后退 */
+        // printf("Backward...\r\n");
+        // Motor_SetSpeed(-2000, -2000);
+        // delay_ms(2000);
 
-        /* 动作6：缓慢停止 */
-        printf("Slow Stop...\r\n");
-        Motor_SetSpeed(0, 0);
-        delay_ms(2000);
+        // /* 动作6：缓慢停止 */
+        // printf("Slow Stop...\r\n");
+        // Motor_SetSpeed(0, 0);
+        // delay_ms(2000);
 
     }
 }
