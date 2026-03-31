@@ -46,32 +46,10 @@ int main(void)
         
         /* 动作1：全速前进 */
         printf("Forward...\r\n");
-        Motor_SetSpeed(2000, 2000); 
+        Motor_SetSpeed(2000, 1000); 
         delay_ms(2000);
-
-        /* 动作2：停止 */
-        printf("Stop...\r\n");
-        Motor_Brake();
-        delay_ms(1000);
-
-        /* 动作3：原地左转 (右轮正转，左轮反转) */
-        printf("Turn Left...\r\n");
-        Motor_SetSpeed(-1500, 1500);
+        Motor_SetSpeed(0,0);
         delay_ms(2000);
-
-        /* 动作4：原地右转 (左轮正转，右轮反转) */
-        printf("Turn Right...\r\n");
-        Motor_SetSpeed(1500, -1500);
-        delay_ms(2000);
-
-        /* 动作5：后退 */
-        printf("Backward...\r\n");
-        Motor_SetSpeed(-2000, -2000);
-        delay_ms(2000);
-
-        /* 动作6：缓慢停止 */
-        printf("Slow Stop...\r\n");
-        Motor_SetSpeed(0, 0);
-        delay_ms(2000);
+        Motor_SetSpeed(-1000,-2000);
     }
 }
