@@ -18,20 +18,19 @@ int main(void)
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
-    USART_Init();     // 使能UART中断（接收依赖此步骤）
-    
+    USART_Init();     // 使能UART中断（接收依赖此步骤）    
     /* 
      * 修改2（最关键）：必须同时启动两个定时器！
      * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。
      * 如果宏名字报错，请去 ti_msp_dl_config.h 里搜索 TIMG 找到准确的名字
      * (也有可能被重命名为 PWM_MotorLeft_INST 等，取决于你SysConfig的命名)
      */
+    setvbuf(stdout, NULL, _IONBF, 0);
     DL_TimerG_startCounter(MotorLeft_INST); 
     DL_TimerG_startCounter(MotorRight_INST); 
 
     // 打印启动信息
     printf("MSPM0G3507 D157B Motor Test Start!\r\n");
-    USART_SendData('a');
     PID garyscalePid = {0};
     garyscalePid.p = 1.0f;
     garyscalePid.i = 1.0f;
@@ -42,14 +41,16 @@ int main(void)
     {
         // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
         // printf("out = %.2f\r\n", out);
-        // delay_ms(50);
+        bool out = Grayscale_Cross((uint16_t *)grayscale, (uint16_t)0.5, 1);
+        printf("%d,now: %.2f",out,(double)grayscale[0]);
+        delay_ms(500);
         
         /* 动作1：全速前进 */
-        printf("Forward...\r\n");
-        Motor_SetSpeed(2000, 1000); 
-        delay_ms(2000);
-        Motor_SetSpeed(0,0);
-        delay_ms(2000);
-        Motor_SetSpeed(-1000,-2000);
+        // Motor_SetSpeed(1000, 1000); 
+        // delay_ms(2000);
+        // Motor_Brake();
+        // delay_ms(2000);
+        // Motor_SetSpeed(-1000,-1000);
+        // delay_ms(2000);
     }
 }

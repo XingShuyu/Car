@@ -22,18 +22,18 @@ static float Grayscale_Line(uint16_t *sensor_values, PID *pid) {
  * @param status 1为左直角，2为右直角，0为十字路口/丁字
  * @return 是否符合
  */
-static bool Grayscale_Cross(uint16_t *sensor_values, float threshold,
+static bool Grayscale_Cross(uint16_t *sensor_values, uint16_t threshold,
                             int status) {
     Grayscale_Sensor_Read_Other(sensor_values);
     if (status == 0) {
-        return (sensor_values[0] > threshold && sensor_values[1] > threshold &&
-                sensor_values[6] > threshold && sensor_values[7] > threshold);
+        return (sensor_values[0] == 1 && sensor_values[1] == 1 &&
+                sensor_values[6] == 1 && sensor_values[7] == 1);
     } else if (status == 1) {
-        return (sensor_values[0] > threshold && sensor_values[1] > threshold &&
-                sensor_values[6] < threshold && sensor_values[7] < threshold);
+        return (sensor_values[0] == 1 && sensor_values[1] == 1 &&
+                sensor_values[6] == 0 && sensor_values[7] == 0);
     } else if (status == 2) {
-        return (sensor_values[0] < threshold && sensor_values[1] < threshold &&
-                sensor_values[6] > threshold && sensor_values[7] > threshold);
+        return (sensor_values[0] == 0 && sensor_values[1] == 0 &&
+                sensor_values[6] == 1 && sensor_values[7] == 1);
     } else {
         return false;
     }

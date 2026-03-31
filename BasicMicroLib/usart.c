@@ -1,4 +1,5 @@
 #include "usart.h"
+#include <stdio.h>
 
 
 #define RE_0_BUFF_LEN_MAX	128
@@ -6,6 +7,12 @@
 volatile uint8_t  recv0_buff[RE_0_BUFF_LEN_MAX] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t  recv0_flag = 0;
+
+static void USART_SendByte_Blocking(uint8_t data)
+{
+	while (DL_UART_isBusy(UART_0_INST) == true);
+	DL_UART_Main_transmitData(UART_0_INST, data);
+}
 
 void USART_Init(void)
 {
@@ -21,12 +28,7 @@ void USART_Init(void)
 //The serial port sends a byte
 void USART_SendData(unsigned char data)
 {
-	//当串口0忙的时候等待
-	//Wait when serial port 0 is busy
-	while( DL_UART_isBusy(UART_0_INST) == true );
-	//发送
-	//send
-	DL_UART_Main_transmitData(UART_0_INST, data);
+	USART_SendByte_Blocking((uint8_t)data);
 }
 
 
@@ -56,53 +58,34 @@ void _sys_exit(int x)
 }
 #endif
 
-//重定向fputc函数
-//Redirect fputc function
+// tiarmclang 下重定向 printf，补齐常见输出入口，避免落到 CIO
+
 int fputc(int ch, FILE *stream)
 {
-    while( DL_UART_isBusy(UART_0_INST) == true );
-    DL_UART_Main_transmitData(UART_0_INST, ch);
-    return ch;
-}
-
-// 部分工具链的 printf 会走 __io_putchar
-int __io_putchar(int ch)
-{
-	while (DL_UART_isBusy(UART_0_INST) == true);
-	DL_UART_Main_transmitData(UART_0_INST, (uint8_t)ch);
+	(void)stream;
+	if (ch == '\n') {
+		USART_SendByte_Blocking('\r');
+	}
+	USART_SendByte_Blocking((uint8_t)ch);
 	return ch;
 }
 
-// tiarmclang/newlib 常走 _write 系统调用
-int _write(int fd, const char *buf, int len)
+int putchar(int ch)
 {
-	int i;
+	return fputc(ch, stdout);
+}
+
+int write(int fd, const char *buf, unsigned int count)
+{
+	unsigned int i;
 	(void)fd;
-
-	for (i = 0; i < len; i++) {
-		while (DL_UART_isBusy(UART_0_INST) == true);
-		DL_UART_Main_transmitData(UART_0_INST, (uint8_t)buf[i]);
+	if (buf == NULL) {
+		return 0;
 	}
-
-	return len;
-}
-
-//重定向fputs函数
-//Redirect fputs function
-int fputs(const char* restrict s, FILE* restrict stream) {
-
-    uint16_t char_len=0;
-    while(*s!=0)
-    {
-        while( DL_UART_isBusy(UART_0_INST) == true );
-        DL_UART_Main_transmitData(UART_0_INST, *s++);
-        char_len++;
-    }
-    return char_len;
-}
-int puts(const char* _ptr)
-{
- return 0;
+	for (i = 0; i < count; i++) {
+		fputc((unsigned char)buf[i], stdout);
+	}
+	return (int)count;
 }
 
 //串口的中断服务函数
