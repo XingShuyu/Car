@@ -9,6 +9,8 @@
 /**
  * Import the modules used in this configuration.
  */
+const ADC12   = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const ADC121  = ADC12.addInstance();
 const GPIO    = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1   = GPIO.addInstance();
 const GPIO2   = GPIO.addInstance();
@@ -29,6 +31,18 @@ const UART1   = UART.addInstance();
  */
 const gate7  = system.clockTree["MFCLKGATE"];
 gate7.enable = true;
+
+ADC121.$name                       = "ADC12_0";
+ADC121.repeatMode                  = true;
+ADC121.adcMem0_name                = "Grayscale";
+ADC121.adcMem0chansel              = "DL_ADC12_INPUT_CHAN_12";
+ADC121.powerDownMode               = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC121.sampClkDiv                  = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC121.sampleTime0                 = "25 us";
+ADC121.peripheral.adcPin12.$assign = "PA14";
+ADC121.adcPin12Config.$name        = "ti_driverlib_gpio_GPIOPinGeneric8";
+
+const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
 
 GPIO1.$name                          = "MotorMonitor";
 GPIO1.associatedPins.create(5);
@@ -57,10 +71,8 @@ GPIO1.associatedPins[4].assignedPort = "PORTA";
 GPIO1.associatedPins[4].assignedPin  = "15";
 GPIO1.associatedPins[4].pin.$assign  = "PA15";
 
-const Board = scripting.addModule("/ti/driverlib/Board", {}, false);
-
 GPIO2.$name                          = "GrayS";
-GPIO2.associatedPins.create(4);
+GPIO2.associatedPins.create(3);
 GPIO2.associatedPins[0].assignedPort = "PORTA";
 GPIO2.associatedPins[0].assignedPin  = "25";
 GPIO2.associatedPins[0].$name        = "AD0";
@@ -70,10 +82,6 @@ GPIO2.associatedPins[1].assignedPin  = "25";
 GPIO2.associatedPins[2].$name        = "AD2";
 GPIO2.associatedPins[2].assignedPort = "PORTB";
 GPIO2.associatedPins[2].assignedPin  = "20";
-GPIO2.associatedPins[3].$name        = "OUT";
-GPIO2.associatedPins[3].direction    = "INPUT";
-GPIO2.associatedPins[3].assignedPort = "PORTA";
-GPIO2.associatedPins[3].assignedPin  = "14";
 
 I2C1.$name                           = "I2C_0";
 I2C1.basicEnableTarget               = true;
@@ -150,14 +158,14 @@ UART1.rxPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric1";
  * version of the tool will not impact the pinmux you originally saw.  These lines can be completely deleted in order to
  * re-solve from scratch.
  */
-GPIO1.associatedPins[1].pin.$suggestSolution = "PA24";
+ADC121.peripheral.$suggestSolution           = "ADC0";
 Board.peripheral.$suggestSolution            = "DEBUGSS";
 Board.peripheral.swclkPin.$suggestSolution   = "PA20";
 Board.peripheral.swdioPin.$suggestSolution   = "PA19";
+GPIO1.associatedPins[1].pin.$suggestSolution = "PA24";
 GPIO2.associatedPins[0].pin.$suggestSolution = "PA25";
 GPIO2.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO2.associatedPins[2].pin.$suggestSolution = "PB20";
-GPIO2.associatedPins[3].pin.$suggestSolution = "PA14";
 I2C1.peripheral.$suggestSolution             = "I2C0";
 TIMER1.peripheral.$suggestSolution           = "TIMA0";
 UART1.peripheral.$suggestSolution            = "UART0";
