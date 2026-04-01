@@ -41,9 +41,9 @@ int main(void)
     {
         // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
         // printf("pid = %.2f, 5: %u,4: %u,3: %u,2: %u\r\n", out,grayscale[5],grayscale[4],grayscale[3],grayscale[2]);
-        bool out = Grayscale_Cross((uint16_t *)grayscale, (uint16_t)0.5, 1);
-        printf("out = %d, 7: %u,6: %u,1: %u,0: %u\r\n", out,grayscale[7],grayscale[6],grayscale[1],grayscale[0]);
-        delay_ms(2000);
+        // bool out = Grayscale_Cross((uint16_t *)grayscale, (uint16_t)0.5, 1);
+        // printf("out = %d, 7: %u,6: %u,1: %u,0: %u\r\n", out,grayscale[7],grayscale[6],grayscale[1],grayscale[0]);
+        // delay_ms(2000);
         
         /* 动作1：全速前进 */
         // Motor_SetSpeed(1000, 1000); 
@@ -52,5 +52,7 @@ int main(void)
         // delay_ms(2000);
         // Motor_SetSpeed(-1000,-1000);
         // delay_ms(2000);
+
+        
     }
 }
