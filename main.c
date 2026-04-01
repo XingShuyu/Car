@@ -4,9 +4,10 @@
 #include "GrayScale/Grayscale_Scan.c"  // 修改1：.c 改为 .h
 #include "Motor/motor.h"
 #include <stdio.h>
-
+#include <stdbool.h>
 volatile uint16_t grayscale[8];
-
+volatile int32_t motor1_count = 0;
+volatile int32_t motor2_count = 0;
 int main(void)
 {
     /* 
@@ -18,6 +19,11 @@ int main(void)
     for(volatile uint32_t i = 0; i < 3200000; i++); 
 
     SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+    // 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
+    NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
+    NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
+    // 启动你的 TIM_0 定时器 (用于后续做 10ms/20ms 速度计算)
+    // DL_Timer_startCounter(TIM_0_INST);
     USART_Init();     // 使能UART中断（接收依赖此步骤）    
     /* 
      * 修改2（最关键）：必须同时启动两个定时器！
@@ -52,5 +58,58 @@ int main(void)
         // delay_ms(2000);
         // Motor_SetSpeed(-1000,-1000);
         // delay_ms(2000);
+    }
+}
+void GPIOA_IRQHandler(void) {
+    // 获取当前触发中断的具体引脚 (掩码)
+    uint32_t pending_pins = DL_GPIO_getPendingInterrupt(MotorMonitor_E1A_PORT);
+
+    // --- 处理电机 1 (E1A 和 E1B 都在 PORTA) ---
+    if (pending_pins & (MotorMonitor_E1A_PIN | MotorMonitor_E1B_PIN)) {
+        bool m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) != 0);
+        bool m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) != 0);
+
+        if (pending_pins & MotorMonitor_E1A_PIN) {
+            DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN);
+            if (m1_A == m1_B) motor1_count++; 
+            else              motor1_count--;
+        }
+        
+        if (pending_pins & MotorMonitor_E1B_PIN) {
+            DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN);
+            if (m1_A != m1_B) motor1_count++; 
+            else              motor1_count--;
+        }
+    }
+
+    // --- 处理电机 2 的 E2B (在 PORTA) ---
+    if (pending_pins & MotorMonitor_E2B_PIN) {
+        DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN);
+        
+        // 注意：E2A 在 PORTB，需要跨端口读取它的状态
+        bool m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) != 0);
+        bool m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) != 0);
+
+        if (m2_A != m2_B) motor2_count++; 
+        else              motor2_count--;
+    }
+}
+
+// ==========================================
+// GPIOB 中断服务函数 (处理 E2A)
+// ==========================================
+void GPIOB_IRQHandler(void) {
+    uint32_t pending_pins = DL_GPIO_getPendingInterrupt(MotorMonitor_E2A_PORT);
+
+    // --- 处理电机 2 的 E2A (在 PORTB) ---
+    if (pending_pins & MotorMonitor_E2A_PIN) {
+        DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN);
+        
+        // 注意：E2B 在 PORTA，需要跨端口读取它的状态
+        bool m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) != 0);
+        bool m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) != 0);
+
+        if (m2_A == m2_B) motor2_count++; 
+        else              motor2_count--;
     }
 }
