@@ -17,7 +17,43 @@ static void _select_channel(uint8_t channel)
 //读取OUT引脚的值 read the value of OUT pin
 static uint16_t Read_OUT_value(void)
 {
-    return SENSOR_OUT_READ();
+    unsigned int gAdcResult = 0;
+
+    //使能ADC转换
+    DL_ADC12_enableConversions(ADC12_0_INST);
+    //软件触发ADC开始转换
+    DL_ADC12_startConversion(ADC12_0_INST);
+
+    //如果当前状态 不是 空闲状态
+    while (DL_ADC12_getStatus(ADC12_0_INST) != DL_ADC12_STATUS_CONVERSION_IDLE );
+
+    //清除触发转换状态
+    DL_ADC12_stopConversion(ADC12_0_INST);
+    //失能ADC转换
+    DL_ADC12_disableConversions(ADC12_0_INST);
+
+    //获取数据
+    gAdcResult = DL_ADC12_getMemResult(ADC12_0_INST, ADC12_0_ADCMEM_Grayscale);
+    if(gAdcResult<=200)gAdcResult =0;
+
+    return (uint16_t)gAdcResult;
+}
+
+// 切换通道后进行稳定读取：丢弃首个样本，减少上一通道残留影响
+static uint16_t _read_channel_stable(uint8_t channel)
+{
+    _select_channel(channel);
+    _delay_us(50);
+    Read_OUT_value();
+
+    _select_channel(channel);
+    _delay_us(50);
+
+    // // ADC采样保持电容在通道切换后可能残留上一通道电压，首样本不用于控制
+    // (void)Read_OUT_value();
+    // _delay_us(10);
+
+    return Read_OUT_value();
 }
 
 //初始化灰度传感器所需的GPIO / init GPIO for grayscale sensor
@@ -31,9 +67,7 @@ void Grayscale_Sensor_Read_All(uint16_t* sensor_values)
     uint8_t i;
     for (i = 0; i < GRAYSCALE_SENSOR_CHANNELS; i++)
     {
-        _select_channel(i);
-        _delay_us(50);
-        sensor_values[i] = Read_OUT_value();
+        sensor_values[i] = _read_channel_stable(i);
     }
 }
 
@@ -43,9 +77,7 @@ void Grayscale_Sensor_Read_Main(uint16_t* sensor_values)
     uint8_t i;
     for (i = 2; i < 6; i++)
     {
-        _select_channel(i);
-        _delay_us(50);
-        sensor_values[i] = Read_OUT_value();
+        sensor_values[i] = _read_channel_stable(i);
     }
 }
 
@@ -55,15 +87,11 @@ void Grayscale_Sensor_Read_Other(uint16_t* sensor_values)
     uint8_t i;
     for (i = 0; i < 2; i++)
     {
-        _select_channel(i);
-        _delay_us(50);
-        sensor_values[i] = Read_OUT_value();
+        sensor_values[i] = _read_channel_stable(i);
     }
     for (i = 6; i < 8; i++)
     {
-        _select_channel(i);
-        _delay_us(50);
-        sensor_values[i] = Read_OUT_value();
+        sensor_values[i] = _read_channel_stable(i);
     }
 }
 
@@ -74,8 +102,6 @@ uint16_t Grayscale_Sensor_Read_Single(uint8_t channel)
     {
         return 0; // 无效通道 // Invalid channel
     }
-    _select_channel(channel);
-    _delay_us(50);
-    return Read_OUT_value();
+    return _read_channel_stable(channel);
 }
 
