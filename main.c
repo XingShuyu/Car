@@ -27,13 +27,14 @@ int main(void) {
 	 * 如果上电后代码立即执行到这里，SWD连接会被切断，导致下载器无法连接并报错“锁死”。
 	 * 添加1-2秒的延时，能给调试器留出充足的连接和暂停CPU的时间。
 	 */
-	for (volatile uint32_t i = 0; i < 3200000; i++);
+	for (volatile uint32_t i = 0; i < 3200000; i++)
+		;
 
-	SYSCFG_DL_init();  // 由SysConfig自动生成的初始化函数
+	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
-	USART_Init();  // 使能UART中断（接收依赖此步骤）
+	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
 	 * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。
@@ -204,17 +205,17 @@ void GROUP1_IRQHandler(void) {
 		else
 			motor1_count--;
 	}
-		if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
-			DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
-										 MotorMonitor_E2B_PIN);
-			m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT,
-									 MotorMonitor_E2A_PIN) != 0);
-			m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT,
-									 MotorMonitor_E2B_PIN) != 0);
-			if (m2_A != m2_B)
-				motor2_count++;
-			else
-				motor2_count--;
+	if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
+		DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
+									 MotorMonitor_E2B_PIN);
+		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
+				0);
+		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
+				0);
+		if (m2_A != m2_B)
+			motor2_count++;
+		else
+			motor2_count--;
 	}
 
 	// 处理 GPIOA 的中断
@@ -238,20 +239,20 @@ void GROUP1_IRQHandler(void) {
 	// 处理 GPIOB 的中断
 	switch (gpioB_iidx) {
 		printf("gpioB:%d", gpioB_iidx);
-		case MotorMonitor_E2A_IIDX:
-			DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
-										 MotorMonitor_E2A_PIN);
-			m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT,
-									 MotorMonitor_E2A_PIN) != 0);
-			m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT,
-									 MotorMonitor_E2B_PIN) != 0);
-			if (m2_A == m2_B)
-				motor2_count++;
-			else
-				motor2_count--;
-			break;
+	case MotorMonitor_E2A_IIDX:
+		DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
+									 MotorMonitor_E2A_PIN);
+		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
+				0);
+		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
+				0);
+		if (m2_A == m2_B)
+			motor2_count++;
+		else
+			motor2_count--;
+		break;
 
-		default:
-			break;
+	default:
+		break;
 	}
 }
