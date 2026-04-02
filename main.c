@@ -1,13 +1,29 @@
 #include "ti_msp_dl_config.h"
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/usart.h"
-#include "GrayScale/Grayscale_Scan.c"  // 修改1：.c 改为 .h
+#include "GrayScale/Grayscale_Scan.c"
 #include "Motor/motor.h"
+#include "MCU6050/mpu6050.h"
 #include <stdio.h>
 #include <stdbool.h>
 volatile uint16_t grayscale[8];
+
 volatile int32_t motor1_count = 0;
 volatile int32_t motor2_count = 0;
+volatile uint32_t startTime;
+
+void CarRight(void){
+    Motor_Brake();
+    delay_ms(1000);
+    Motor_SetSpeed(1000, -1000);
+    delay_ms(400);
+    Motor_SetSpeed(600, 1000);
+    delay_ms(4000);
+    Motor_SetSpeed(1000, -1000);
+    delay_ms(400);
+    Motor_Brake();
+}
+
 int main(void)
 {
     /* 
@@ -22,8 +38,6 @@ int main(void)
     // 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
     NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
     NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
-    // 启动你的 TIM_0 定时器 (用于后续做 10ms/20ms 速度计算)
-    // DL_Timer_startCounter(TIM_0_INST);
     USART_Init();     // 使能UART中断（接收依赖此步骤）    
     /* 
      * 修改2（最关键）：必须同时启动两个定时器！
@@ -43,6 +57,10 @@ int main(void)
     garyscalePid.d = 1.0f;
     garyscalePid.i_Max = 100.0f;
 
+    startTime = SysTick->VAL;
+
+    CarRight();
+    
     while (1)
     {
         // float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
@@ -58,10 +76,21 @@ int main(void)
         // delay_ms(2000);
         // Motor_SetSpeed(-1000,-1000);
         // delay_ms(2000);
+        // MPU6050_ReadAll(&now);
+        // printf("MCU: ax:%.2f, ay:%.2f, az:%.2f, gx:%.2f, gy:%.2f, gz:%.2f, temp: %.2f \r\n",now.ax,now.ay,now.az,now.gx,now.gy,now.gz,now.temp);
+        // delay_ms(2000);
+
+
 
         
     }
 }
+
+
+
+
+
+
 void GPIOA_IRQHandler(void) {
     // 获取当前触发中断的具体引脚 (掩码)
     uint32_t pending_pins = DL_GPIO_getPendingInterrupt(MotorMonitor_E1A_PORT);

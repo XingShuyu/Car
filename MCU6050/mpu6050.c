@@ -33,7 +33,7 @@ static float s_gyroScale  = 1.0f / 131.0f;    /* ±250°/s default */
 static bool i2c_wait_idle(void)
 {
     uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
-    while (DL_I2C_isBusBusy(MPU6050_I2C_INST)) {
+    while (DL_I2C_getControllerStatus(MPU6050_I2C_INST) & DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
         if (--timeout == 0u) return false;
     }
     return true;
