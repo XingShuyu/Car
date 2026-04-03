@@ -1,3 +1,6 @@
+#ifndef PID_H
+#define PID_H
+
 typedef struct{
     float p;
     float i;
@@ -6,4 +9,5 @@ typedef struct{
     float saved_i;
 }PID;
 
-float PID_calculate(PID* pid,float new_Value,float last_Value);
+float PID_calculate(PID* pid,float new_Value,float old_Value);
+#endif // PID_H

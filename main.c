@@ -1,11 +1,34 @@
-#include "main.h"
+#include "ti_msp_dl_config.h"
+#include "BasicMicroLib/delay.h"
+#include "BasicMicroLib/usart.h"
+#include "GrayScale/Grayscale_Scan.h"
+#include "Motor/motor.h"
+#include "MCU6050/mpu6050.h"
+#include "BasicMicroLib/getTime.h"
+#include <stdio.h>
+#include <stdbool.h>
 
-volatile uint16_t grayscale[8];
+//循迹pid
+PID garyscalePid = {1.0f,1.0f,1.0f,100.0,0};
 
-volatile int32_t motor1_count = 0;
-volatile int32_t motor1_speed = 0;
-volatile int32_t motor2_count = 0;
-volatile int32_t motor2_speed = 0;
+//电机pid
+PID motorPid = {1.0f,1.0f,1.0f,100.0,0};
+
+//-------------------
+//各种时间声明
+//获取电机速度时间戳
+uint32_t lastMotorSpeedTime=0;
+//数据输出时间戳
+uint32_t lastUartTime=0;
+//循迹时间戳
+uint32_t lastGrayscaleTime=0;
+
+uint16_t grayscale[8];
+
+volatile int32_t motorRightSpeed = 0;
+volatile int32_t motorLeftSpeed = 0;
+volatile int32_t motorLeftCount = 0;
+volatile int32_t motorRightCount = 0;
 
 void CarRight(void) {
 	Motor_Brake();
@@ -20,15 +43,10 @@ void CarRight(void) {
 }
 
 int main(void) {
-	/*
-	 * 关键修复：在系统初始化前加入延时。
-	 * MSPM0在自动生成的 SYSCFG_DL_init()
-	 * 中会复位GPIOA，这会导致SWD调试引脚瞬时重置。
-	 * 如果上电后代码立即执行到这里，SWD连接会被切断，导致下载器无法连接并报错“锁死”。
-	 * 添加1-2秒的延时，能给调试器留出充足的连接和暂停CPU的时间。
-	 */
-	for (volatile uint32_t i = 0; i < 3200000; i++)
-		;
+	//--------------------------------------
+	//                 初始化
+	//--------------------------------------
+	for (volatile uint32_t i = 0; i < 3200000; i++);
 
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
@@ -51,6 +69,7 @@ int main(void) {
 
 	// 获取启动时间tick
 	startTime = getNowMs();
+	Motor_SetAccuSpeed(15, 15);
 
 	// 时间轴开始
 	while (1) {
@@ -58,17 +77,35 @@ int main(void) {
 		nowTime = getNowMs();
 		// 每100ms获取电机运行圈数
 		if (getTimeMs(nowTime, lastMotorSpeedTime) > 100) {
+			int32_t leftCountSnapshot;
+			int32_t rightCountSnapshot;
+
 			lastMotorSpeedTime = nowTime;
-			motor1_speed = motor1_count * 10;
-			motor2_speed = motor2_count * 10;
-			motor1_count = 0;
-			motor2_count = 0;
+
+			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+			__disable_irq();
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
+			motorLeftCount = 0;
+			motorRightCount = 0;
+			__enable_irq();
+
+			motorRightSpeed = ((rightCountSnapshot * 10) / 4) / 28 / 500;
+			motorLeftSpeed = ((leftCountSnapshot * 10) / 4) / 28 / 500;
+			Motor_PidSpeed(&motorPid, motorLeftSpeed, motorRightSpeed);
 		}
 
 		if (getTimeMs(nowTime, lastUartTime) > 1000) {
 			lastUartTime = nowTime;
-			printf("电机1: %ld, 电机2: %ld\r\n", (long)motor1_speed,
-				   (long)motor2_speed);
+			printf("电机1: %ld, 电机2: %ld\r\n", (long)motorRightSpeed,
+				   (long)motorLeftSpeed);
+		}
+
+		//基础循迹
+		if(getTimeMs(nowTime, lastGrayscaleTime) > 100){
+			lastGrayscaleTime = nowTime
+			Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+
 		}
 
 		// float out = Grayscale_Line((uint16_t *)grayscale, &garyscalePid);
@@ -94,104 +131,25 @@ int main(void) {
 	}
 }
 
-// void GPIOA_IRQHandler(void) {
-// 	// 获取当前触发中断的具体引脚 (掩码)
-
-// 	uint32_t pending_pins = DL_GPIO_getPendingInterrupt(MotorMonitor_E1A_PORT);
-
-// 	// printf("pending_pins: %u, all: %d",pending_pins,(MotorMonitor_E1A_PIN |
-// 	// MotorMonitor_E1B_PIN));
-// 	// --- 处理电机 1 (E1A 和 E1B 都在 PORTA) ---
-// 	if (pending_pins & (MotorMonitor_E1A_PIN | MotorMonitor_E1B_PIN)) {
-// 		bool m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT,
-// 									  MotorMonitor_E1A_PIN) != 0);
-// 		bool m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT,
-// 									  MotorMonitor_E1B_PIN) != 0);
-// 		if (pending_pins & MotorMonitor_E1A_PIN) {
-// 			DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
-// 										 MotorMonitor_E1A_PIN);
-// 			if (m1_A == m1_B) {
-// 				motor1_count++;
-// 			}
-
-// 			else
-// 				motor1_count--;
-// 		}
-
-// 		if (pending_pins & MotorMonitor_E1B_PIN) {
-// 			DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT,
-// 										 MotorMonitor_E1B_PIN);
-// 			if (m1_A != m1_B) {
-// 				motor1_count++;
-// 			} else
-// 				motor1_count--;
-// 		}
-// 	}
-
-// 	// --- 处理电机 2 的 E2B (在 PORTA) ---
-// 	if (pending_pins & MotorMonitor_E2B_PIN) {
-// 		DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
-// 									 MotorMonitor_E2B_PIN);
-
-// 		// 注意：E2A 在 PORTB，需要跨端口读取它的状态
-// 		bool m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT,
-// 									  MotorMonitor_E2A_PIN) != 0);
-// 		bool m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT,
-// 									  MotorMonitor_E2B_PIN) != 0);
-
-// 		if (m2_A != m2_B)
-// 			motor2_count++;
-// 		else
-// 			motor2_count--;
-// 	}
-// }
-
-// // ==========================================
-// // GPIOB 中断服务函数 (处理 E2A)
-// // ==========================================
-// void GPIOB_IRQHandler(void) {
-// 	// printf("中断B");
-// 	uint32_t pending_pins = DL_GPIO_getPendingInterrupt(MotorMonitor_E2A_PORT);
-// 	printf("pending_pins: %u, all: %d", pending_pins,
-// 		   pending_pins && MotorMonitor_E2A_PIN);
-// 	// --- 处理电机 2 的 E2A (在 PORTB) ---
-// 	if (pending_pins & MotorMonitor_E2A_PIN) {
-// 		DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
-// 									 MotorMonitor_E2A_PIN);
-
-// 		// 注意：E2B 在 PORTA，需要跨端口读取它的状态
-// 		bool m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT,
-// 									  MotorMonitor_E2A_PIN) != 0);
-// 		bool m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT,
-// 									  MotorMonitor_E2B_PIN) != 0);
-
-// 		if (m2_A == m2_B)
-// 			motor2_count++;
-// 		else
-// 			motor2_count--;
-// 	}
-// }
-
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
 // 这里做一次分发，避免中断落入默认处理函数导致“卡死”。
 void GROUP1_IRQHandler(void) {
-	volatile bool m1_A, m1_B, m2_A, m2_B;
+	bool m1_A, m1_B, m2_A, m2_B;
 	int gpioA_iidx, gpioB_iidx;
 
 	// 分别查询两个 PORT 的待处理中断
 	gpioA_iidx = DL_GPIO_getPendingInterrupt(GPIOA);
 	gpioB_iidx = DL_GPIO_getPendingInterrupt(GPIOB);
 	if (gpioA_iidx == MotorMonitor_E1A_IIDX) {
-		DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
-									 MotorMonitor_E1A_PIN);
+		DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,MotorMonitor_E1A_PIN);
 		m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
 				0);
 		m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
 				0);
 		if (m1_A == m1_B)
-			motor1_count++;
+			motorLeftCount++;
 		else
-			motor1_count--;
+			motorLeftCount--;
 	}
 	if (gpioA_iidx == MotorMonitor_E1B_IIDX) {
 		DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT,
@@ -201,9 +159,9 @@ void GROUP1_IRQHandler(void) {
 		m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
 				0);
 		if (m1_A != m1_B)
-			motor1_count++;
+			motorLeftCount++;
 		else
-			motor1_count--;
+			motorLeftCount--;
 	}
 	if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
 		DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
@@ -213,33 +171,11 @@ void GROUP1_IRQHandler(void) {
 		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
 				0);
 		if (m2_A != m2_B)
-			motor2_count++;
+			motorRightCount--;
 		else
-			motor2_count--;
+			motorRightCount++;
 	}
-
-	// 处理 GPIOA 的中断
-	// switch (gpioA_iidx) {
-	// 	case MotorMonitor_E1A_IIDX:
-
-	// 		break;
-
-	// 	default:
-	// 		break;
-
-	// 	case MotorMonitor_E1B_IIDX:
-
-	// 		break;
-
-	// 	case MotorMonitor_E2B_IIDX:
-
-	// 		break;
-	// }
-
-	// 处理 GPIOB 的中断
-	switch (gpioB_iidx) {
-		printf("gpioB:%d", gpioB_iidx);
-	case MotorMonitor_E2A_IIDX:
+	if (gpioB_iidx == MotorMonitor_E2A_IIDX) {
 		DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
 									 MotorMonitor_E2A_PIN);
 		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
@@ -247,12 +183,8 @@ void GROUP1_IRQHandler(void) {
 		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
 				0);
 		if (m2_A == m2_B)
-			motor2_count++;
+			motorRightCount--;
 		else
-			motor2_count--;
-		break;
-
-	default:
-		break;
+			motorRightCount++;
 	}
 }
