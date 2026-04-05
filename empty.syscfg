@@ -91,11 +91,6 @@ GPIO2.associatedPins[2].$name        = "AD2";
 GPIO2.associatedPins[2].assignedPort = "PORTB";
 GPIO2.associatedPins[2].assignedPin  = "20";
 
-GPIO3.$name                          = "buzzer";
-GPIO3.associatedPins[0].assignedPort = "PORTA";
-GPIO3.associatedPins[0].assignedPin  = "16";
-GPIO3.associatedPins[0].$name        = "PIN_A16";
-
 GPIO3.$name                          = "Distance";
 GPIO3.associatedPins.create(2);
 GPIO3.associatedPins[0].$name        = "Echo";
@@ -112,6 +107,7 @@ GPIO4.$name                          = "buzzer";
 GPIO4.associatedPins[0].$name        = "PIN_A16";
 GPIO4.associatedPins[0].assignedPort = "PORTA";
 GPIO4.associatedPins[0].assignedPin  = "16";
+GPIO4.associatedPins[0].initialValue = "SET";
 
 I2C1.$name                           = "I2C_0";
 I2C1.basicEnableTarget               = true;
@@ -199,7 +195,6 @@ GPIO1.associatedPins[4].pin.$suggestSolution = "PB24";
 GPIO2.associatedPins[0].pin.$suggestSolution = "PA25";
 GPIO2.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO2.associatedPins[2].pin.$suggestSolution = "PB20";
-GPIO3.associatedPins[0].pin.$suggestSolution = "PA16";
 GPIO3.associatedPins[0].pin.$suggestSolution = "PB17";
 GPIO3.associatedPins[1].pin.$suggestSolution = "PB19";
 GPIO4.associatedPins[0].pin.$suggestSolution = "PA16";

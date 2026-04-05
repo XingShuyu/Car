@@ -4,33 +4,21 @@ float eOld = 0.0f;
 
 // 中间四个光电返回直线pid结果
 float Grayscale_Line(bool *sensor_values, PID *pid) {
-	// static float last_calculated_sensor_values = 0;
-	// float now_calculated_sensor_values = 0;
-	// float out;
-	// Grayscale_Sensor_Read_Main(sensor_values);
-	// now_calculated_sensor_values =
-	//     -2.0f * sensor_values[2] - 1.0f * sensor_values[3] +
-	//     1.0f * sensor_values[4] + 2.0f * sensor_values[5];
-	// out = PID_calculate(pid, now_calculated_sensor_values,
-	//                     last_calculated_sensor_values);
-	// last_calculated_sensor_values = now_calculated_sensor_values;
-
-	// Grayscale_Sensor_Read_Main(sensor_values);
-	float wNow;
+	static float wNow, eOld, ePrev;
 	Grayscale_Sensor_Read_All(sensor_values);
 	// 重心归一化
-	float eRow = (0.0 * sensor_values[0] - 0.0 * sensor_values[1] -
-				  2.0 * sensor_values[2] - 1.0 * sensor_values[3] +
-				  1.0 * sensor_values[4] + 2.0 * sensor_values[5] +
-				  0.0 * sensor_values[6] + 0.0 * sensor_values[7]) /
+	float eRow = (-2.0 * sensor_values[2] - 1.0 * sensor_values[3] +
+				  1.0 * sensor_values[4] + 2.0 * sensor_values[5]) /
 				 (sensor_values[2] + sensor_values[3] + sensor_values[4] +
 				  sensor_values[5] + 0.00000001);
-	float eNew = A * eOld + (1 - A) * eRow;
+	// float eNew = A * eOld + (1 - A) * eRow;
 	// 计算转向参数
 
-	wNow = pid->p * eNew + pid->d * (eNew - eOld);
-	eOld = eNew;
-	printf("Back:%d\r\n",(int)eNew);
+	// wNow = pid->p * eNew + pid->d * (eNew - eOld);
+	wNow += PID_calculate(pid, eRow, eOld, ePrev);
+	ePrev = eOld;
+	eOld = eRow;
+	printf("Back:%.2f\r\n", wNow);
 	return wNow / 2.0f;
 }
 

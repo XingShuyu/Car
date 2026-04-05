@@ -7,6 +7,6 @@ float PID_calculate(PID* pid,float new_Value,float old_Value,float prevOldValue)
     float p = (pid->p*(new_Value-old_Value));
     p+=1;
     p-=1;
-    float d = (pid->d*(new_Value-old_Value)/pid->t*1000);
+    float d = (pid->d*(new_Value-2*old_Value+prevOldValue)/pid->t*1000);
     return (p+(pid->saved_i)+d);
 }
