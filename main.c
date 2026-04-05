@@ -6,13 +6,19 @@
 #include "Motor/motor.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
+#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
+#define RAD_TO_DEG 57.29578f			 // 将弧度制转换为角度制
+#define DEG_TO_RAD 0.01745329f			 // 角度制转化为弧度制
+#define G_TO_MS2 9.8f					 // 加速度取9.8
+#define DT_SAMPLE 0.01f					 // 采样周期10ms
+static float yaw_angle = 0.0f;			 // 偏航角（度），绕 Z 轴
 // 循迹pid
-PID garyscalePid = {0.5f, 0.0f, 0.0f, 100.0, 0,10};
+PID garyscalePid = {0.5f, 0.0f, 0.0f, 100.0, 0, 10};
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0,50};
@@ -48,6 +54,8 @@ volatile int32_t motorLeftSpeed = 0;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 
+void process_imu_for_horizontal_motion(float dt);
+void buzzer_beep(void);
 void CarRight(void) {
 	Motor_Brake();
 	delay_ms(1000);
@@ -94,6 +102,11 @@ int main(void) {
 	// RightRound();
 
 	// 时间轴开始
+	buzzer_beep();
+	// 初始化 MPU6050（默认 ±2g / ±250°/s）
+	if (!MPU6050_Init()) {
+	}
+	uint32_t last_time = getNowMs();
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
@@ -179,6 +192,24 @@ int main(void) {
 			// Grayscale_Line(grayscale, &garyscalePid);
 		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 
+		}
+		uint32_t now = getNowMs();
+		float dt = (float)(now - last_time) / 1000.0f;
+		if (dt > 0.1f)
+		dt = 0.01f; // 限制最大 dt，防止突变
+		last_time = now;
+
+		// 处理 IMU 数据，更新偏航角、速度、位移
+		process_imu_for_horizontal_motion(dt);
+
+		// 延时到下一个周期（非精确，仅示例）
+		delay_ms((int)(DT_SAMPLE * 100));
+
+		if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
+			lastGrayscaleTime = nowTime;
+			// 输出结果（可通过串口查看）
+			printf(
+				"Yaw: %.1f deg",yaw_angle);
 		}
 	}
 }
@@ -270,4 +301,27 @@ void UART_0_INST_IRQHandler(void) {
 	default: // 其他的串口中断	Other serial port interrupts
 		break;
 	}
+}
+// 计算姿态角和位移的函数
+void process_imu_for_horizontal_motion(float dt) {
+	MPU6050_Data_t data;
+	if (!MPU6050_ReadAll(&data)) {
+		printf("MPU6050 read error\n");
+		return;
+	}
+	if (data.gz < 0.01 && data.gz > -0.01) {
+
+	} else {
+		yaw_angle += data.gz * dt;
+	}
+}
+//蜂鸣器鸣响三声
+void buzzer_beep(void)
+{
+    for (int i = 0; i < 3; i++) {
+        DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16);   // 关闭蜂鸣器
+        delay_ms(100);
+        DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16);     // 打开蜂鸣器
+        delay_ms(100);
+    }
 }
