@@ -6,7 +6,7 @@
 
 // PWM最大计数值 (对应SysConfig中的 3200)
 #define PWM_MAX_COUNT      3200
-#define MOTOR_MAX_SPEED    3000  // 留一点余量防止占空比100%导致驱动异常
+#define MOTOR_MAX_SPEED    2000  // 留一点余量防止占空比100%导致驱动异常
 
 
 
