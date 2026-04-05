@@ -12,10 +12,10 @@
 #include <string.h>
 
 // 循迹pid
-PID garyscalePid = {0.3f, 0.0f, 0.2f, 100.0, 0,10};
+PID garyscalePid = {0.5f, 0.0f, 0.0f, 100.0, 0,10};
 
-// 电机pid
-PID motorPid = {10.0f, 0.0f, 0.0f, 1000000.0, 0,10};
+// 电机pid 0.003
+PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0,50};
 
 // 基础速度
 int BaseSpeed = 5000;
@@ -39,6 +39,7 @@ uint32_t lastBluetoothTime = 0;
 
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
+MPU6050_Data_t data;
 volatile uint8_t recv0_flag = 0;
 bool grayscale[8];
 
@@ -69,7 +70,7 @@ int main(void) {
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
-	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
+	NVIC_EnableIRQ(GPIO_MULTIPLE_GPIOB_INT_IRQN);
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
@@ -79,6 +80,7 @@ int main(void) {
 	 */
 	setvbuf(stdout, NULL, _IONBF, 0);
 	TimeBase_Init();
+	MPU6050_Init();
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 
@@ -88,32 +90,40 @@ int main(void) {
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// Rush();
-	Motor_SetAccuSpeed(5000, 5000);
+	Motor_SetAccuSpeed(30000, 30000);
 	// RightRound();
 
 	// 时间轴开始
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
-		// 每100ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > motorPid.t) {
+		// 每10ms获取电机运行圈数
+		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
-
+			motorPid.t = getTimeMs(nowTime, lastMotorSpeedTime);
 			lastMotorSpeedTime = nowTime;
 
 			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
 			__disable_irq();
-			leftCountSnapshot = motorLeftCount/motorPid.t*1000;
-			rightCountSnapshot = motorRightCount/motorPid.t*1000;
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
 			motorLeftCount = 0;
 			motorRightCount = 0;
 			__enable_irq();
+			leftCountSnapshot = leftCountSnapshot/motorPid.t*500;
+			rightCountSnapshot = rightCountSnapshot/motorPid.t*500;
 
 			// motorRightSpeed = rightCountSnapshot/95;
 			// motorLeftSpeed = leftCountSnapshot/95;
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
+		}
+		if (getTimeMs(nowTime,lastUartTime)>50) {
+			lastUartTime=nowTime;
+			MPU6050_ReadAll(&data);
+			// printf("ax:%f",data.ax);
+			
 		}
 
 		// if (getTimeMs(nowTime, lastStageTime) > 10) {
@@ -163,12 +173,13 @@ int main(void) {
 
 		// }
 
-		// // 基础循迹
-		//  if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
-		//  	lastGrayscaleTime = nowTime;
-		//  	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+		//基础循迹
+		 if(getTimeMs(nowTime, lastGrayscaleTime) > 100){
+		 	lastGrayscaleTime = nowTime;
+			// Grayscale_Line(grayscale, &garyscalePid);
+		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 
-		// }
+		}
 	}
 }
 

@@ -16,14 +16,22 @@ float Grayscale_Line(bool *sensor_values, PID *pid) {
 	// last_calculated_sensor_values = now_calculated_sensor_values;
 
 	// Grayscale_Sensor_Read_Main(sensor_values);
+	float wNow;
 	Grayscale_Sensor_Read_All(sensor_values);
 	// 重心归一化
-	float eRow = (-4.0*sensor_values[0]-3.0*sensor_values[1]-2.0*sensor_values[2]-1.0*sensor_values[3]+1.0*sensor_values[4]+2.0*sensor_values[5]+3.0*sensor_values[6]+4.0*sensor_values[7])/(sensor_values[0]+sensor_values[1]+sensor_values[2]+sensor_values[3]+sensor_values[4]+sensor_values[5]+sensor_values[6]+sensor_values[7]+0.00000001);
-	float eNew = A*eOld+(1-A)*eRow;
-	//计算转向参数
-	float w = pid->p*eNew+pid->d*(eNew-eOld)/0.01;
+	float eRow = (0.0 * sensor_values[0] - 0.0 * sensor_values[1] -
+				  2.0 * sensor_values[2] - 1.0 * sensor_values[3] +
+				  1.0 * sensor_values[4] + 2.0 * sensor_values[5] +
+				  0.0 * sensor_values[6] + 0.0 * sensor_values[7]) /
+				 (sensor_values[2] + sensor_values[3] + sensor_values[4] +
+				  sensor_values[5] + 0.00000001);
+	float eNew = A * eOld + (1 - A) * eRow;
+	// 计算转向参数
+
+	wNow = pid->p * eNew + pid->d * (eNew - eOld);
 	eOld = eNew;
-	return w/4.0f;
+	printf("Back:%d\r\n",(int)eNew);
+	return wNow / 2.0f;
 }
 
 /*十字路口/直角弯道判断
@@ -33,14 +41,14 @@ float Grayscale_Line(bool *sensor_values, PID *pid) {
  */
 bool Grayscale_Cross(bool *sensor_values, int status) {
 	Grayscale_Sensor_Read_Other(sensor_values);
-	if (status == 0) {
-		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
-				sensor_values[6] > 0 && sensor_values[7] > 0);
+	if (status == 2) {
+		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
+				sensor_values[7] > 0);
 	} else if (status == 1) {
 		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
-				sensor_values[6] == 0 && sensor_values[7] == 0);
-	} else if (status == 2) {
-		return (sensor_values[0] == 0 && sensor_values[1] == 0 &&
+				sensor_values[7] == 0);
+	} else if (status == 0) {
+		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
 				sensor_values[6] > 0 && sensor_values[7] > 0);
 	} else {
 		return false;
