@@ -4,13 +4,17 @@
 
 #define RE_0_BUFF_LEN_MAX	128
 
-volatile uint8_t  recv0_buff[RE_0_BUFF_LEN_MAX] = {0};
-volatile uint16_t recv0_length = 0;
-volatile uint8_t  recv0_flag = 0;
+
 
 static void USART_SendByte_Blocking(uint8_t data)
 {
-	while (DL_UART_isBusy(UART_0_INST) == true);
+	uint32_t timeout = 1000000U;
+	while ((DL_UART_isBusy(UART_0_INST) == true) && (timeout > 0U)) {
+		timeout--;
+	}
+	if (timeout == 0U) {
+		return;
+	}
 	DL_UART_Main_transmitData(UART_0_INST, data);
 }
 
@@ -88,37 +92,4 @@ int write(int fd, const char *buf, unsigned int count)
 	return (int)count;
 }
 
-//串口的中断服务函数
-//Serial port interrupt service function
-void UART_0_INST_IRQHandler(void)
-{
-	uint8_t receivedData = 0;
-	
-	//如果产生了串口中断
-	//If a serial port interrupt occurs
-	switch( DL_UART_getPendingInterrupt(UART_0_INST) )
-	{
-		case DL_UART_IIDX_RX://如果是接收中断	If it is a receive interrupt
-			
-			// 接收发送过来的数据保存	Receive and save the data sent
-			receivedData = DL_UART_Main_receiveData(UART_0_INST);
-		
-			// 检查缓冲区是否已满	Check if the buffer is full
-			if (recv0_length < RE_0_BUFF_LEN_MAX - 1)
-			{
-				recv0_buff[recv0_length++] = receivedData;
-			}
-			else
-			{
-				recv0_length = 0;
-			}
 
-			// 标记接收标志	Mark receiving flag
-			recv0_flag = 1;
-		
-			break;
-		
-		default://其他的串口中断	Other serial port interrupts
-			break;
-	}
-}

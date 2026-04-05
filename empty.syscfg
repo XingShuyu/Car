@@ -103,8 +103,8 @@ I2C1.peripheral.sclPin.$assign       = "PA31";
 I2C1.sdaPinConfig.$name              = "ti_driverlib_gpio_GPIOPinGeneric4";
 I2C1.sclPinConfig.$name              = "ti_driverlib_gpio_GPIOPinGeneric5";
 
-PWM1.timerCount                         = 3200;
 PWM1.$name                              = "MotorLeft";
+PWM1.timerCount                         = 3200;
 PWM1.peripheral.$assign                 = "TIMG8";
 PWM1.peripheral.ccp0Pin.$assign         = "PB21";
 PWM1.peripheral.ccp1Pin.$assign         = "PB11";

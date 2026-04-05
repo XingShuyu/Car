@@ -19,6 +19,9 @@
 #define SENSOR_AD2_PORT         GrayS_AD2_PORT
 #define SENSOR_AD2_PIN          GrayS_AD2_PIN
 
+//归一化阈值
+#define THRESHOLD               1000
+
 //=====================================================================================
 //  GPIO操作抽象接口 (GPIO Operation Macros)
 //=====================================================================================
@@ -40,9 +43,10 @@
 #define GRAYSCALE_SENSOR_CHANNELS   8   // 传感器通道总数 Number of sensor channels
 
 void Grayscale_Sensor_Init(void);
-void Grayscale_Sensor_Read_All(uint16_t* sensor_values);
-void Grayscale_Sensor_Read_Main(uint16_t* sensor_values);
-void Grayscale_Sensor_Read_Other(uint16_t* sensor_values);
-uint16_t Grayscale_Sensor_Read_Single(uint8_t channel);
+void Grayscale_Sensor_Read_All(bool* sensor_values);
+void Grayscale_Sensor_Read_Main(bool* sensor_values);
+void Grayscale_Sensor_Read_Other(bool* sensor_values);
+bool Grayscale_Sensor_Read_Single(uint8_t channel);
+bool _read_channel_stable(uint8_t channel);
 
 #endif // __GRAYSCALE_SENSOR_H

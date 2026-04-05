@@ -1,11 +1,16 @@
 #include "motor.h"
+#include "GrayScale/grayscale_sensor.h"
 #include "ti_msp_dl_config.h"
 
 // 宏定义：你的配置文件里设置的 PWM 周期是 3200
 #define PWM_PERIOD 3200
 
-//目标转速
-int32_t leftTargetSpeed=0,rightTargetSpeed=0;
+// 目标转速
+int32_t leftTargetSpeed = 0, rightTargetSpeed = 0;
+// 基础转速
+int32_t leftBaseSpeed = 0, rightBaseSpeed = 0;
+// 真实输入转速
+int32_t leftRealSpeed = 0, rightRealSpeed = 0;
 
 void Motor_Init(void) {
 	// PWM 已在 SysConfig 中初始化，这里确保电机初始处于停止状态
@@ -99,33 +104,44 @@ void Motor_Brake(void) {
 }
 
 void Motor_SetAccuSpeed(int32_t left_speed, int32_t right_speed) {
+	leftBaseSpeed = left_speed;
 	leftTargetSpeed = left_speed;
+	rightBaseSpeed = right_speed;
 	rightTargetSpeed = right_speed;
 	return;
 }
 
-//pid纠正速度
+// pid纠正速度
 void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 	int32_t leftBias, rightBias; // 定义相关变量
-	static int32_t leftControlVelocity, leftLast_bias, rightControlVelocity,
-		rightLast_bias; // 静态变量，函数调用结束后其值依然存在
+	static int32_t leftLast_bias,rightLast_bias,leftPrev_bias,rightPrev_bias; // 静态变量，函数调用结束后其值依然存在
 	leftBias = leftTargetSpeed - leftSpeed;	   // 求速度偏差
 	rightBias = rightTargetSpeed - rightSpeed; // 求速度偏差
-	leftControlVelocity +=
-		motorPID->p * (leftBias - leftLast_bias) +
-		motorPID->i * leftBias; // 增量式PI控制器
-								// Velcity_Kp*(Bias-Last_bias) 作用为限制加速度
-								// Velcity_Ki*Bias 速度控制值由Bias不断积分得到
-								// 偏差越大加速度越大
-	rightControlVelocity +=
-		motorPID->p * (rightBias - rightLast_bias) + motorPID->i * rightBias;
+	printf("Back:%d\r\n",leftBias);
+	leftRealSpeed += PID_calculate(motorPID, leftBias, leftLast_bias,leftPrev_bias);
+	rightRealSpeed += PID_calculate(motorPID, rightBias, rightLast_bias,rightPrev_bias);
+	leftPrev_bias = leftLast_bias;
+	rightPrev_bias = rightLast_bias;
 	leftLast_bias = leftBias;
 	rightLast_bias = rightBias;
-	Motor_SetSpeed(leftControlVelocity, rightControlVelocity);
+	Motor_SetSpeed(leftRealSpeed/100 , rightRealSpeed/100);
 }
 
-//根据pid返回值修改目标速度
-void Motor_FixError(float error){
-	leftTargetSpeed-=error;
-	rightTargetSpeed+=error;
+// 根据pid返回值修改目标速度
+void Motor_FixError(float error) {
+	leftTargetSpeed = leftBaseSpeed * (1 - error*0.5);
+	rightTargetSpeed = rightBaseSpeed * (1 + error*0.5);
+}
+
+void Rush(void){
+	Motor_SetAccuSpeed(5000,5000);
+	delay_ms(500);
+	Motor_SetAccuSpeed(0,0);
+}
+
+void RightRound(void){
+	// Rush();
+	Motor_SetAccuSpeed(5000, -5000);
+	while(_read_channel_stable(4)==false)delay_ms(50);
+	Motor_SetAccuSpeed(0,0);
 }

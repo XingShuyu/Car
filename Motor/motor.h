@@ -42,4 +42,8 @@ void Motor_PidSpeed(PID *motorPID,int32_t leftSpeed,int32_t rightSpeed);
 //根据pid值修正速度
 void Motor_FixError(float error);
 
+void Rush(void);
+
+void RightRound(void);
+
 #endif // MOTOR_H
