@@ -15,6 +15,7 @@ const GPIO    = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1   = GPIO.addInstance();
 const GPIO2   = GPIO.addInstance();
 const GPIO3   = GPIO.addInstance();
+const GPIO4   = GPIO.addInstance();
 const I2C     = scripting.addModule("/ti/driverlib/I2C", {}, false);
 const I2C1    = I2C.addInstance();
 const PWM     = scripting.addModule("/ti/driverlib/PWM", {}, false);
@@ -31,8 +32,7 @@ const UART1   = UART.addInstance();
  * Write custom configuration values to the imported modules.
  */
 const gate7  = system.clockTree["MFCLKGATE"];
-gate7.enable = true; 
-
+gate7.enable = true;
 
 ADC121.$name                       = "ADC12_0";
 ADC121.repeatMode                  = true;
@@ -102,6 +102,11 @@ GPIO3.associatedPins[0].polarity     = "RISE";
 GPIO3.associatedPins[1].$name        = "Trig";
 GPIO3.associatedPins[1].assignedPort = "PORTB";
 GPIO3.associatedPins[1].assignedPin  = "19";
+
+GPIO4.$name                          = "buzzer";
+GPIO4.associatedPins[0].$name        = "PIN_A16";
+GPIO4.associatedPins[0].assignedPort = "PORTA";
+GPIO4.associatedPins[0].assignedPin  = "16";
 
 I2C1.$name                           = "I2C_0";
 I2C1.basicEnableTarget               = true;
@@ -191,5 +196,6 @@ GPIO2.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO2.associatedPins[2].pin.$suggestSolution = "PB20";
 GPIO3.associatedPins[0].pin.$suggestSolution = "PB17";
 GPIO3.associatedPins[1].pin.$suggestSolution = "PB19";
+GPIO4.associatedPins[0].pin.$suggestSolution = "PA16";
 TIMER1.peripheral.$suggestSolution           = "TIMA0";
 UART1.peripheral.$suggestSolution            = "UART0";
