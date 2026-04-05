@@ -117,7 +117,6 @@ void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 	static int32_t leftLast_bias,rightLast_bias,leftPrev_bias,rightPrev_bias; // 静态变量，函数调用结束后其值依然存在
 	leftBias = leftTargetSpeed - leftSpeed;	   // 求速度偏差
 	rightBias = rightTargetSpeed - rightSpeed; // 求速度偏差
-	printf("Back:%d\r\n",leftBias);
 	leftRealSpeed += PID_calculate(motorPID, leftBias, leftLast_bias,leftPrev_bias);
 	rightRealSpeed += PID_calculate(motorPID, rightBias, rightLast_bias,rightPrev_bias);
 	leftPrev_bias = leftLast_bias;
