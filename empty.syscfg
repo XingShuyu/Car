@@ -31,7 +31,8 @@ const UART1   = UART.addInstance();
  * Write custom configuration values to the imported modules.
  */
 const gate7  = system.clockTree["MFCLKGATE"];
-gate7.enable = true;
+gate7.enable = true; 
+
 
 ADC121.$name                       = "ADC12_0";
 ADC121.repeatMode                  = true;
