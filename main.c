@@ -28,7 +28,8 @@ PID motorPid = {10.0f, 0.0f, 0.0f, 1000000.0, 0, 10};
 
 // 基础速度
 int BaseSpeed = 5000;
-
+//障碍物距离
+float distance;
 //-------------------
 // 各种时间声明
 // 获取电机速度时间戳
@@ -82,7 +83,7 @@ int main(void) {
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
-	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
+	NVIC_EnableIRQ(GPIO_MULTIPLE_GPIOB_INT_IRQN);
 	Ultrasonic_Init();//初始化超声波函数
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	/*
@@ -183,25 +184,35 @@ int main(void) {
 		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 
 		}
-		if()
-		uint32_t now = getNowMs();
-		float dt = (float)(now - last_time) / 1000.0f;
-		if (dt > 0.1f)
-		dt = 0.01f; // 限制最大 dt，防止突变
-		last_time = now;
-
-		// 处理 IMU 数据，更新偏航角、速度、位移
-		process_imu_for_horizontal_motion(dt);
-
-		// 延时到下一个周期（非精确，仅示例）
-		delay_ms((int)(DT_SAMPLE * 100));
-
-		if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
-			lastGrayscaleTime = nowTime;
-			// 输出结果（可通过串口查看）
-			printf(
-				"Yaw: %.1f deg",yaw_angle);
+		//超声波测距
+		if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
+			lastUltrasonicTime=nowTime;
+            distance=Ultrasonic_GetDistance();
+			if(distance>200.0){
+				printf("前方无障碍");
+			}
+			else{
+				printf("前方有障碍且障碍距离为%.1f cm",distance);
+			}
 		}
+		// uint32_t now = getNowMs();
+		// float dt = (float)(now - last_time) / 1000.0f;
+		// if (dt > 0.1f)
+		// dt = 0.01f; // 限制最大 dt，防止突变
+		// last_time = now;
+
+		// // 处理 IMU 数据，更新偏航角、速度、位移
+		// process_imu_for_horizontal_motion(dt);
+
+		// // 延时到下一个周期（非精确，仅示例）
+		// delay_ms((int)(DT_SAMPLE * 100));
+
+		// if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
+		// 	lastGrayscaleTime = nowTime;
+		// 	// 输出结果（可通过串口查看）
+		// 	printf(
+		// 		"Yaw: %.1f deg",yaw_angle);
+		// }
 	}
 }
 

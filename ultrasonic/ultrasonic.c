@@ -27,7 +27,7 @@
    超声波参数
 ------------------------------------------------------------------ */
 #define SOUND_SPEED_CM_PER_US   0.0343f     // 声速 cm/μs，20°C
-#define MAX_DISTANCE_CM          400.0f     // 最大测量距离 4m
+#define MAX_DISTANCE_CM          20.0f     // 最大测量距离 0.2m
 #define TIMEOUT_US              23300.0f   // 约 23300μs
 void Ultrasonic_Init(void) {
     // 配置 Trig 为输出，初始低电平
@@ -66,8 +66,6 @@ float Ultrasonic_GetDistance(void) {
     uint32_t duration_us = getTimeUs(end_us, start_us);
     float distance = (float)duration_us * SOUND_SPEED_CM_PER_US / 2.0f;
 
-    if (distance > MAX_DISTANCE_CM) {
-        distance = MAX_DISTANCE_CM;
-    }
+    
     return distance;
 }
