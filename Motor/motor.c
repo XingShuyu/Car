@@ -131,8 +131,8 @@ void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 
 // 根据pid返回值修改目标速度
 void Motor_FixError(float error) {
-	leftTargetSpeed = leftBaseSpeed * (1 - error*0.9);
-	rightTargetSpeed = rightBaseSpeed * (1 + error*0.9);
+	leftTargetSpeed = leftBaseSpeed * (1 - error);
+	rightTargetSpeed = rightBaseSpeed * (1 + error);
 }
 
 void Rush(void){

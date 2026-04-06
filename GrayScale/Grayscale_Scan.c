@@ -4,22 +4,46 @@ float eOld = 0.0f;
 
 // 中间四个光电返回直线pid结果
 float Grayscale_Line(bool *sensor_values, PID *pid) {
-	static float wNow, eOld, ePrev;
-	Grayscale_Sensor_Read_All(sensor_values);
-	// 重心归一化
-	float eRow = (-2.0 * sensor_values[2] - 1.0 * sensor_values[3] +
-				  1.0 * sensor_values[4] + 2.0 * sensor_values[5]) /
-				 (sensor_values[2] + sensor_values[3] + sensor_values[4] +
-				  sensor_values[5] + 0.00000001);
-	// float eNew = A * eOld + (1 - A) * eRow;
-	// 计算转向参数
+	// static float wNow, eOld, ePrev;
+	// error>0 左转
+	static float error;
+	Grayscale_Sensor_Read_Main(sensor_values);
+	// // 重心归一化
+	// float eRow = (-2.0 * sensor_values[2] - 1.5 * sensor_values[3] +
+	// 			  1.5 * sensor_values[4] + 2.0 * sensor_values[5]) /
+	// 			 (sensor_values[2] + sensor_values[3] + sensor_values[4] +
+	// 			  sensor_values[5] + 0.00000001);
+	// // float eNew = A * eOld + (1 - A) * eRow;
+	// // 计算转向参数
+	if (sensor_values[3] == 1 && sensor_values[4] == 1) {
+		error = 0;
+	}
+	if (sensor_values[3] == 1 && sensor_values[4] == 0) {
+		error = -0.025;
+	}
+	if (sensor_values[3] == 0 && sensor_values[4] == 1) {
+		error = 0.025;
+	}
+	if (sensor_values[5] == 1 && sensor_values[4] == 1) {
+		error = 0.035;
+	}
+	if (sensor_values[2] == 1 && sensor_values[3] == 1) {
+		error = -0.035;
+	}
+	if (sensor_values[2] == 1 && sensor_values[3] == 0) {
+		error = -0.05;
+	}
+	if (sensor_values[5] == 1 && sensor_values[1] == 0) {
+		error = 0.05;
+	}
+	return error;
 
-	// wNow = pid->p * eNew + pid->d * (eNew - eOld);
-	wNow += PID_calculate(pid, eRow, eOld, ePrev);
-	ePrev = eOld;
-	eOld = eRow;
-	printf("Back:%.2f\r\n", wNow);
-	return wNow / 2.0f;
+	// // wNow = pid->p * eNew + pid->d * (eNew - eOld);
+	// wNow += PID_calculate(pid, eRow, eOld, ePrev);
+	// ePrev = eOld;
+	// eOld = eRow;
+	// printf("Back:%.2f\r\n", eRow);
+	// return eRow/3.0;
 }
 
 /*十字路口/直角弯道判断
