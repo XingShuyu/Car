@@ -17,8 +17,6 @@
 #define G_TO_MS2 9.8f		   // 加速度取9.8
 #define DT_SAMPLE 0.01f		   // 采样周期10ms
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
-// 循迹pid
-PID garyscalePid = {0.1f, 0.0f, 0.0f, 100.0, 0, 10};
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
@@ -132,8 +130,8 @@ int main(void) {
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
-		if (getTimeMs(nowTime, lastUartTime) > 50) {
-			lastUartTime = nowTime;
+		if (getTimeMs(nowTime, lastIMUTime) > 50) {
+			lastIMUTime = nowTime;
 			MPU6050_ReadAll(&data);
 			// printf("ax:%f",data.ax);
 		}
