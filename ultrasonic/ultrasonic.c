@@ -42,7 +42,8 @@ float Ultrasonic_GetDistance(void) {
 
     /* 1. 发送 12μs 高电平触发脉冲 */
     DL_GPIO_setPins(TRIG_PORT, TRIG_PIN);
-    delay_us(12);
+    uint32_t start0 = getNowUs();
+    while (getTimeUs(getNowUs(), start0) < 12);
     DL_GPIO_clearPins(TRIG_PORT, TRIG_PIN);
 
     /* 2. 等待 Echo 变为高电平（模块开始发射） */
@@ -65,7 +66,7 @@ float Ultrasonic_GetDistance(void) {
     /* 4. 计算距离（getTimeUs 安全处理回绕） */
     uint32_t duration_us = getTimeUs(end_us, start_us);
     float distance = (float)duration_us * SOUND_SPEED_CM_PER_US / 2.0f;
-
+    printf("duration_us = %lu us, distance = %.2f cm\n", duration_us, distance);
     
     return distance;
 }

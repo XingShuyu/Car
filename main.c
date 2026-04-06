@@ -191,21 +191,21 @@ int main(void) {
 
 		// }
 
-		// 基础循迹
-		 if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
-		 	lastGrayscaleTime = nowTime;
-		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+		// // 基础循迹
+		//  if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
+		//  	lastGrayscaleTime = nowTime;
+		//  	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 
-		}
+		// }
 		//超声波测距
 		if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
 			lastUltrasonicTime=nowTime;
             distance=Ultrasonic_GetDistance();
-			if(distance>200.0){
-				printf("前方无障碍");
+			if(distance>20.0 || distance == 0.0){
+				printf("前方无障碍\r\n");
 			}
 			else{
-				printf("前方有障碍且障碍距离为%.1f cm",distance);
+				printf("前方有障碍且障碍距离为%.1f cm\r\n",distance);
 			}
 		}
 		// uint32_t now = getNowMs();
