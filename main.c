@@ -132,6 +132,9 @@ int main(void) {
 		}
 		if (getTimeMs(nowTime, lastIMUTime) > 50) {
 			lastIMUTime = nowTime;
+
+
+			
 			MPU6050_ReadAll(&data);
 			// printf("ax:%f",data.ax);
 		}
