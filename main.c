@@ -20,8 +20,6 @@
 #define DT_SAMPLE 0.01f					 // 采样周期10ms
 #define TRIG_PORT 
 static float yaw_angle = 0.0f;			 // 偏航角（度），绕 Z 轴
-// 循迹pid
-PID garyscalePid = {0.1f, 0.0f, 0.0f, 100.0, 0, 10};
 
 // 电机pid
 PID motorPid = {10.0f, 0.0f, 0.0f, 1000000.0, 0, 10};
