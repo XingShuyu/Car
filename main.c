@@ -18,7 +18,7 @@
 #define DT_SAMPLE 0.01f		   // 采样周期10ms
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 // 循迹pid
-PID garyscalePid = {0.2f, 0.0f, 0.0f, 100.0, 0, 10};
+PID garyscalePid = {0.1f, 0.0f, 0.0f, 100.0, 0, 10};
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
@@ -100,7 +100,7 @@ int main(void) {
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// Rush();
-	Motor_SetAccuSpeed(30000, 30000);
+	Motor_SetAccuSpeed(60000, 60000);
 	// RightRound();
 
 	// 时间轴开始
@@ -138,47 +138,47 @@ int main(void) {
 			// printf("ax:%f",data.ax);
 		}
 
-		if (getTimeMs(nowTime, lastStageTime) > 10) {
-			if (command[StageIndex] == 1) {
-				// RUSH
-				if (StageFlag == 0) {
-					Motor_SetAccuSpeed(5000, 5000);
-					StageFlag++;
-				}
-				if (StageFlag < 10) {
-					StageFlag++;
-				} else {
-					Motor_SetAccuSpeed(0, 0);
-					StageFlag = 0;
-					StageIndex++;
-				}
-			}
-			if (command[StageIndex] == 2) {
-				if (StageFlag == 0) {
-					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
-					StageFlag++;
-				}
-				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
-					Motor_SetAccuSpeed(0, 0);
-					Motor_Brake();
-					StageFlag = 0;
-					StageIndex++;
-				}
-			}
-			if (command[StageIndex] == 3) {
-				if (StageFlag == 0) {
-					Motor_SetAccuSpeed(5000, -5000);
-					StageFlag++;
-				}
-				if (StageFlag == 1 && _read_channel_stable(1)) {
-					Motor_SetAccuSpeed(0, 0);
-					Motor_Brake();
-					StageFlag = 0;
-					StageIndex++;
-				}
-			}
-			lastStageTime = nowTime;
-		}
+		// if (getTimeMs(nowTime, lastStageTime) > 10) {
+		// 	if (command[StageIndex] == 1) {
+		// 		// RUSH
+		// 		if (StageFlag == 0) {
+		// 			Motor_SetAccuSpeed(5000, 5000);
+		// 			StageFlag++;
+		// 		}
+		// 		if (StageFlag < 10) {
+		// 			StageFlag++;
+		// 		} else {
+		// 			Motor_SetAccuSpeed(0, 0);
+		// 			StageFlag = 0;
+		// 			StageIndex++;
+		// 		}
+		// 	}
+		// 	if (command[StageIndex] == 2) {
+		// 		if (StageFlag == 0) {
+		// 			Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+		// 			StageFlag++;
+		// 		}
+		// 		if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
+		// 			Motor_SetAccuSpeed(0, 0);
+		// 			Motor_Brake();
+		// 			StageFlag = 0;
+		// 			StageIndex++;
+		// 		}
+		// 	}
+		// 	if (command[StageIndex] == 3) {
+		// 		if (StageFlag == 0) {
+		// 			Motor_SetAccuSpeed(5000, -5000);
+		// 			StageFlag++;
+		// 		}
+		// 		if (StageFlag == 1 && _read_channel_stable(1)) {
+		// 			Motor_SetAccuSpeed(0, 0);
+		// 			Motor_Brake();
+		// 			StageFlag = 0;
+		// 			StageIndex++;
+		// 		}
+		// 	}
+		// 	lastStageTime = nowTime;
+		// }
 
 		// if (getTimeMs(nowTime, lastGrayscaleTime) > 50 &&
 		// Grayscale_Cross(grayscale, 1)) { 	lastGrayscaleTime = nowTime;
@@ -186,7 +186,7 @@ int main(void) {
 		// }
 
 		// 基础循迹
-		if (getTimeMs(nowTime, lastGrayscaleTime) > 10) {
+		if (getTimeMs(nowTime, lastGrayscaleTime) > 1) {
 			lastGrayscaleTime = nowTime;
 			Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 		}

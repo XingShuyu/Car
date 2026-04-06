@@ -2,6 +2,7 @@
 #define GRAYSCALE_SCAN_H
 
 #include "BasicMicroLib/PID.h"
+#include "ti_msp_dl_config.h"
 #include "grayscale_sensor.h"
 
 //低通滤波系数A,A大，信号更稳但更慢；A小,响应更快但更抖

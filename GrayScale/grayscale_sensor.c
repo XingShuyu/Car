@@ -11,39 +11,41 @@ static void _select_channel(uint8_t channel) {
 
 // 读取OUT引脚的值 read the value of OUT pin
 bool Read_OUT_value(void) {
-	unsigned int gAdcResult = 0;
-	bool result;
-	uint32_t timeout = 200000U;
+	// unsigned int gAdcResult = 0;
+	// bool result;
+	// uint32_t timeout = 200000U;
 
-	// 使能ADC转换
-	DL_ADC12_enableConversions(ADC12_0_INST);
-	// 软件触发ADC开始转换
-	DL_ADC12_startConversion(ADC12_0_INST);
+	// // 使能ADC转换
+	// DL_ADC12_enableConversions(ADC12_0_INST);
+	// // 软件触发ADC开始转换
+	// DL_ADC12_startConversion(ADC12_0_INST);
 
-	// 如果当前状态 不是 空闲状态
-	while (
-		(DL_ADC12_getStatus(ADC12_0_INST) != DL_ADC12_STATUS_CONVERSION_IDLE) &&
-		(timeout > 0U)) {
-		timeout--;
-	}
+	// // 如果当前状态 不是 空闲状态
+	// while (
+	// 	(DL_ADC12_getStatus(ADC12_0_INST) != DL_ADC12_STATUS_CONVERSION_IDLE) &&
+	// 	(timeout > 0U)) {
+	// 	timeout--;
+	// }
 
-	// 清除触发转换状态
-	DL_ADC12_stopConversion(ADC12_0_INST);
-	// 失能ADC转换
-	DL_ADC12_disableConversions(ADC12_0_INST);
+	// // 清除触发转换状态
+	// DL_ADC12_stopConversion(ADC12_0_INST);
+	// // 失能ADC转换
+	// DL_ADC12_disableConversions(ADC12_0_INST);
 
-	// 防止ADC状态异常导致主循环永久卡住
-	if (timeout == 0U) {
-		return 0;
-	}
+	// // 防止ADC状态异常导致主循环永久卡住
+	// if (timeout == 0U) {
+	// 	return 0;
+	// }
 
-	// 获取数据
-	gAdcResult = DL_ADC12_getMemResult(ADC12_0_INST, ADC12_0_ADCMEM_Grayscale);
-    //归一化处理
-	if (gAdcResult <= THRESHOLD)
-		result = false;
-	else
-		result = true;
+	// // 获取数据
+	// gAdcResult = DL_ADC12_getMemResult(ADC12_0_INST, ADC12_0_ADCMEM_Grayscale);
+    // //归一化处理
+	// if (gAdcResult <= THRESHOLD)
+	// 	result = false;
+	// else
+	// 	result = true;
+
+	bool result = DL_GPIO_readPins(GrayS_OUT_PORT,GrayS_OUT_PIN);
 	return result;
 }
 
@@ -52,8 +54,6 @@ bool _read_channel_stable(uint8_t channel) {
 	_select_channel(channel);
 	_delay_us(50);
 	Read_OUT_value();
-
-	_select_channel(channel);
 	_delay_us(50);
 
 	// // ADC采样保持电容在通道切换后可能残留上一通道电压，首样本不用于控制
