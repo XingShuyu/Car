@@ -6,22 +6,25 @@
 #include "Motor/motor.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
+#include "ultrasonic.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
-#define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
-#define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
-#define G_TO_MS2 9.8f		   // 加速度取9.8
-#define DT_SAMPLE 0.01f		   // 采样周期10ms
-static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
+
+#define RAD_TO_DEG 57.29578f			 // 将弧度制转换为角度制
+#define DEG_TO_RAD 0.01745329f			 // 角度制转化为弧度制
+#define G_TO_MS2 9.8f					 // 加速度取9.8
+#define DT_SAMPLE 0.01f					 // 采样周期10ms
+#define TRIG_PORT 
+static float yaw_angle = 0.0f;			 // 偏航角（度），绕 Z 轴
 // 循迹pid
 PID garyscalePid = {0.1f, 0.0f, 0.0f, 100.0, 0, 10};
 
-// 电机pid 0.003
-PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
+// 电机pid
+PID motorPid = {10.0f, 0.0f, 0.0f, 1000000.0, 0, 10};
 
 // 基础速度
 int BaseSpeed = 5000;
@@ -34,8 +37,6 @@ uint32_t lastMotorSpeedTime = 0;
 uint32_t lastUartTime = 0;
 // 循迹时间戳
 uint32_t lastGrayscaleTime = 0;
-// IMU时间戳
-uint32_t lastIMUTime = 0;
 // 阶段时间戳
 uint32_t lastStageTime = 0;
 // 阶段索引
@@ -47,7 +48,6 @@ uint32_t lastBluetoothTime = 0;
 
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
-MPU6050_Data_t data;
 volatile uint8_t recv0_flag = 0;
 bool grayscale[8];
 
@@ -80,7 +80,8 @@ int main(void) {
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
-	NVIC_EnableIRQ(GPIO_MULTIPLE_GPIOB_INT_IRQN);
+	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
+	Ultrasonic_Init();//初始化超声波函数
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
@@ -90,7 +91,6 @@ int main(void) {
 	 */
 	setvbuf(stdout, NULL, _IONBF, 0);
 	TimeBase_Init();
-	MPU6050_Init();
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 
@@ -100,32 +100,32 @@ int main(void) {
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// Rush();
-	Motor_SetAccuSpeed(60000, 60000);
+	Motor_SetAccuSpeed(5000, 5000);
 	// RightRound();
 
 	// 时间轴开始
-	// buzzer_beep();
+	buzzer_beep();
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
-	MPU6050_Init();
+	if (!MPU6050_Init()) {
+	}
+	uint32_t last_time = getNowMs();
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
-		// 每10ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
+		// 每100ms获取电机运行圈数
+		if (getTimeMs(nowTime, lastMotorSpeedTime) > motorPid.t) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
-			motorPid.t = getTimeMs(nowTime, lastMotorSpeedTime);
+
 			lastMotorSpeedTime = nowTime;
 
 			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
 			__disable_irq();
-			leftCountSnapshot = motorLeftCount;
-			rightCountSnapshot = motorRightCount;
+			leftCountSnapshot = motorLeftCount / motorPid.t * 1000;
+			rightCountSnapshot = motorRightCount / motorPid.t * 1000;
 			motorLeftCount = 0;
 			motorRightCount = 0;
 			__enable_irq();
-			leftCountSnapshot = leftCountSnapshot / motorPid.t * 500;
-			rightCountSnapshot = rightCountSnapshot / motorPid.t * 500;
 
 			// motorRightSpeed = rightCountSnapshot/95;
 			// motorLeftSpeed = leftCountSnapshot/95;
@@ -186,22 +186,29 @@ int main(void) {
 		// }
 
 		// 基础循迹
-		if (getTimeMs(nowTime, lastGrayscaleTime) > 1) {
-			lastGrayscaleTime = nowTime;
-			Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+		 if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
+		 	lastGrayscaleTime = nowTime;
+		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+
 		}
+		uint32_t now = getNowMs();
+		float dt = (float)(now - last_time) / 1000.0f;
+		if (dt > 0.1f)
+		dt = 0.01f; // 限制最大 dt，防止突变
+		last_time = now;
 
-		// if (getTimeMs(nowTime, lastIMUTime) > 10) {
-		// 	process_imu_for_horizontal_motion(getTimeMs(nowTime, lastIMUTime) /
-		// 									  1000.0);
-		// 	lastIMUTime = nowTime;
-		// }
+		// 处理 IMU 数据，更新偏航角、速度、位移
+		process_imu_for_horizontal_motion(dt);
 
-		// if (getTimeMs(nowTime, lastUartTime) > 1000) {
-		// 	lastGrayscaleTime = nowTime;
-		// 	// 输出结果（可通过串口查看）
-		// 	printf("Yaw: %.1f deg", yaw_angle);
-		// }
+		// 延时到下一个周期（非精确，仅示例）
+		delay_ms((int)(DT_SAMPLE * 100));
+
+		if (getTimeMs(nowTime, lastGrayscaleTime) > 100) {
+			lastGrayscaleTime = nowTime;
+			// 输出结果（可通过串口查看）
+			printf(
+				"Yaw: %.1f deg",yaw_angle);
+		}
 	}
 }
 
@@ -293,7 +300,7 @@ void UART_0_INST_IRQHandler(void) {
 		break;
 	}
 }
-// 计算姿态角和位移的函数(dt单位秒)
+// 计算姿态角和位移的函数
 void process_imu_for_horizontal_motion(float dt) {
 	MPU6050_Data_t data;
 	if (!MPU6050_ReadAll(&data)) {
@@ -306,12 +313,13 @@ void process_imu_for_horizontal_motion(float dt) {
 		yaw_angle += data.gz * dt;
 	}
 }
-// 蜂鸣器鸣响三声
-void buzzer_beep(void) {
-	for (int i = 0; i < 3; i++) {
-		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16); // 关闭蜂鸣器
-		delay_ms(100);
-		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16); // 打开蜂鸣器
-		delay_ms(100);
-	}
+//蜂鸣器鸣响三声
+void buzzer_beep(void)
+{
+    for (int i = 0; i < 3; i++) {
+        DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16);   // 关闭蜂鸣器
+        delay_ms(100);
+        DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16);     // 打开蜂鸣器
+        delay_ms(100);
+    }
 }
