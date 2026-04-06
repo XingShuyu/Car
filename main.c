@@ -6,7 +6,7 @@
 #include "Motor/motor.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
-#include "ultrasonic.h"
+#include "ultrasonic/ultrasonic.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -37,6 +37,8 @@ uint32_t lastMotorSpeedTime = 0;
 uint32_t lastUartTime = 0;
 // 循迹时间戳
 uint32_t lastGrayscaleTime = 0;
+//超声波时间戳
+uint32_t lastUltrasonicTime=0;
 // 阶段时间戳
 uint32_t lastStageTime = 0;
 // 阶段索引
@@ -181,6 +183,7 @@ int main(void) {
 		 	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
 
 		}
+		if()
 		uint32_t now = getNowMs();
 		float dt = (float)(now - last_time) / 1000.0f;
 		if (dt > 0.1f)

@@ -44,7 +44,7 @@ void Motor_FixError(float error);
 //根据pid值左转弯
 void Turn_Left(float error);
 //根据pid值右转弯
-void Turn_Right(float error)；
+void Turn_Right(float error);
 
 void Rush(void);
 

@@ -10,8 +10,8 @@
 
 #include "ultrasonic.h"
 #include "ti_msp_dl_config.h"
-#include "get_time.h"          // 提供 getNowUs(), getTimeUs()
-#include "delay.h"
+#include "BasicMicroLib/getTime.h"          // 提供 getNowUs(), getTimeUs()
+#include "BasicMicroLib/delay.h"
 #include <stddef.h>
 
 /* ------------------------------------------------------------------
@@ -31,11 +31,11 @@
 #define TIMEOUT_US              23300.0f   // 约 23300μs
 void Ultrasonic_Init(void) {
     // 配置 Trig 为输出，初始低电平
-    DL_GPIO_initDigitalOutput(TRIG_PORT, TRIG_PIN);
+    DL_GPIO_initDigitalOutput(Distance_Trig_IOMUX);
     DL_GPIO_clearPins(TRIG_PORT, TRIG_PIN);
 
     // 配置 Echo 为输入（无需上拉）
-    DL_GPIO_initDigitalInput(ECHO_PORT, ECHO_PIN);
+    DL_GPIO_initDigitalInput(Distance_Echo_IOMUX);
 }
 float Ultrasonic_GetDistance(void) {
     uint32_t start_us, end_us;
