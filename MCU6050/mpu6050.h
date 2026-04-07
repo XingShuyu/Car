@@ -27,7 +27,6 @@
 /*  MPU6050 I2C Address                                                */
 /* ------------------------------------------------------------------ */
 #define MPU6050_ADDR            (0x68u)   /* AD0 = GND */
-/* #define MPU6050_ADDR         (0x69u)   // AD0 = VCC */
 
 /* ------------------------------------------------------------------ */
 /*  MPU6050 Register Map                                               */
@@ -114,56 +113,51 @@ typedef struct {
 /*  Public API                                                         */
 /* ------------------------------------------------------------------ */
 
-/**
- * @brief  Initialize MPU6050 with default settings
- *         (±2g, ±250°/s, DLPF=0, SampleRate divider=0)
- * @return true if successful, false if device not found
- */
+/* 基本初始化与配置 */
 bool MPU6050_Init(void);
-
-/**
- * @brief  Initialize MPU6050 with custom configuration
- */
 bool MPU6050_InitWithConfig(const MPU6050_Config_t *cfg);
+bool MPU6050_Reset(void);
+bool MPU6050_WhoAmI(uint8_t *id);
+bool MPU6050_SetGyroFS(MPU6050_GyroFS_t fs);
+bool MPU6050_SetAccelFS(MPU6050_AccelFS_t fs);
 
-/**
- * @brief  Read raw accelerometer data (16-bit signed)
- */
+/* 原始数据读取 */
 bool MPU6050_ReadAccelRaw(MPU6050_RawData_t *out);
-
-/**
- * @brief  Read raw gyroscope data (16-bit signed)
- */
 bool MPU6050_ReadGyroRaw(MPU6050_RawData_t *out);
-
-/**
- * @brief  Read raw temperature register value
- */
 bool MPU6050_ReadTempRaw(int16_t *out);
-
-/**
- * @brief  Read all sensor data converted to physical units
- */
 bool MPU6050_ReadAll(MPU6050_Data_t *out);
 
-/**
- * @brief  Software-reset the MPU6050
- */
-bool MPU6050_Reset(void);
+/* ---------- 新增零偏校准相关函数 ---------- */
 
 /**
- * @brief  Read WHO_AM_I register (should return 0x68)
+ * @brief 校准陀螺仪零偏（静止状态下调用）
+ * @param samples 采样次数，建议 500~2000
+ * @return true 成功，false 失败
+ * @note 校准期间必须保持 MPU6050 绝对静止
  */
-bool MPU6050_WhoAmI(uint8_t *id);
+bool MPU6050_CalibrateGyro(uint16_t samples);
 
 /**
- * @brief  Set gyroscope full-scale range
+ * @brief 获取当前陀螺仪零偏值（单位：°/s）
+ * @param x 输出 X 轴零偏
+ * @param y 输出 Y 轴零偏
+ * @param z 输出 Z 轴零偏
  */
-bool MPU6050_SetGyroFS(MPU6050_GyroFS_t fs);
+void MPU6050_GetGyroZero(float *x, float *y, float *z);
 
 /**
- * @brief  Set accelerometer full-scale range
+ * @brief 手动设置陀螺仪零偏值
+ * @param x X 轴零偏
+ * @param y Y 轴零偏
+ * @param z Z 轴零偏
  */
-bool MPU6050_SetAccelFS(MPU6050_AccelFS_t fs);
+void MPU6050_SetGyroZero(float x, float y, float z);
+
+/**
+ * @brief 读取所有数据，并返回已减去陀螺仪零偏的角速度值
+ * @param out 输出数据结构（加速度、温度、校准后的角速度）
+ * @return true 成功，false 失败
+ */
+bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out);
 
 #endif /* MPU6050_H_ */

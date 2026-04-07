@@ -23,13 +23,15 @@
 static float s_accelScale = 1.0f / 16384.0f;  /* ±2g  default */
 static float s_gyroScale  = 1.0f / 131.0f;    /* ±250°/s default */
 
+/* ---------- 新增：陀螺仪零偏存储（单位：°/s） ---------- */
+static float s_gyroZeroX = 0.0f;
+static float s_gyroZeroY = 0.0f;
+static float s_gyroZeroZ = 0.0f;
+
 /* ================================================================== */
-/*  Low-level I2C helpers                                              */
+/*  Low-level I2C helpers (保持不变)                                   */
 /* ================================================================== */
 
-/**
- * @brief  Block until the I2C bus is not busy (with a simple counter timeout)
- */
 static bool i2c_wait_idle(void)
 {
     uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
@@ -39,20 +41,15 @@ static bool i2c_wait_idle(void)
     return true;
 }
 
-/**
- * @brief  Block until a TX or RX operation is complete
- */
 static bool i2c_wait_done(void)
 {
     uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
-    /* Wait for STOP condition or NACK */
     while (!DL_I2C_getRawInterruptStatus(
                 MPU6050_I2C_INST,
                 DL_I2C_INTERRUPT_CONTROLLER_STOP |
                 DL_I2C_INTERRUPT_CONTROLLER_NACK)) {
         if (--timeout == 0u) return false;
     }
-    /* Check for NACK */
     if (DL_I2C_getRawInterruptStatus(MPU6050_I2C_INST,
             DL_I2C_INTERRUPT_CONTROLLER_NACK)) {
         DL_I2C_clearInterruptStatus(MPU6050_I2C_INST,
@@ -65,9 +62,6 @@ static bool i2c_wait_done(void)
     return true;
 }
 
-/**
- * @brief  Write one byte to an MPU6050 register
- */
 static bool mpu6050_write_reg(uint8_t reg, uint8_t val)
 {
     if (!i2c_wait_idle()) return false;
@@ -76,12 +70,10 @@ static bool mpu6050_write_reg(uint8_t reg, uint8_t val)
         DL_I2C_INTERRUPT_CONTROLLER_NACK |
         DL_I2C_INTERRUPT_CONTROLLER_STOP);
 
-    /* Fill TX FIFO: register address then data */
     DL_I2C_flushControllerTXFIFO(MPU6050_I2C_INST);
     DL_I2C_fillControllerTXFIFO(MPU6050_I2C_INST, &reg, 1);
     DL_I2C_fillControllerTXFIFO(MPU6050_I2C_INST, &val, 1);
 
-    /* Start write transaction: 2 bytes */
     DL_I2C_startControllerTransfer(
         MPU6050_I2C_INST,
         MPU6050_ADDR,
@@ -91,10 +83,6 @@ static bool mpu6050_write_reg(uint8_t reg, uint8_t val)
     return i2c_wait_done();
 }
 
-/**
- * @brief  Read one or more bytes starting at a register address
- *         Uses repeated-start (write reg addr, then read).
- */
 static bool mpu6050_read_regs(uint8_t reg, uint8_t *buf, uint8_t len)
 {
     if (!i2c_wait_idle()) return false;
@@ -104,7 +92,6 @@ static bool mpu6050_read_regs(uint8_t reg, uint8_t *buf, uint8_t len)
         DL_I2C_INTERRUPT_CONTROLLER_STOP |
         DL_I2C_INTERRUPT_CONTROLLER_RX_DONE);
 
-    /* --- Phase 1: Write register pointer (no STOP) --- */
     DL_I2C_flushControllerTXFIFO(MPU6050_I2C_INST);
     DL_I2C_fillControllerTXFIFO(MPU6050_I2C_INST, &reg, 1);
 
@@ -114,7 +101,6 @@ static bool mpu6050_read_regs(uint8_t reg, uint8_t *buf, uint8_t len)
         DL_I2C_CONTROLLER_DIRECTION_TX,
         1u);
 
-    /* Wait until TX byte is sent (STOP generated) */
     if (!i2c_wait_done()) return false;
     if (!i2c_wait_idle()) return false;
 
@@ -123,7 +109,6 @@ static bool mpu6050_read_regs(uint8_t reg, uint8_t *buf, uint8_t len)
         DL_I2C_INTERRUPT_CONTROLLER_STOP |
         DL_I2C_INTERRUPT_CONTROLLER_RX_DONE);
 
-    /* --- Phase 2: Read `len` bytes --- */
     DL_I2C_flushControllerRXFIFO(MPU6050_I2C_INST);
 
     DL_I2C_startControllerTransfer(
@@ -132,10 +117,8 @@ static bool mpu6050_read_regs(uint8_t reg, uint8_t *buf, uint8_t len)
         DL_I2C_CONTROLLER_DIRECTION_RX,
         (uint16_t)len);
 
-    /* Poll until all bytes received */
     uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
     for (uint8_t i = 0; i < len; i++) {
-        /* Wait for a byte in RX FIFO */
         while (DL_I2C_isControllerRXFIFOEmpty(MPU6050_I2C_INST)) {
             if (--timeout == 0u) return false;
         }
@@ -157,9 +140,7 @@ bool MPU6050_WhoAmI(uint8_t *id)
 
 bool MPU6050_Reset(void)
 {
-    /* Set DEVICE_RESET bit in PWR_MGMT_1 */
     if (!mpu6050_write_reg(MPU6050_REG_PWR_MGMT_1, 0x80u)) return false;
-    /* Wait for reset to complete (~100ms) */
     uint32_t delay = 100000u;
     while (delay--) { __NOP(); }
     return true;
@@ -196,8 +177,8 @@ bool MPU6050_Init(void)
     MPU6050_Config_t defaultCfg = {
         .gyroFS       = MPU6050_GYRO_FS_250DPS,
         .accelFS      = MPU6050_ACCEL_FS_2G,
-        .dlpfConfig   = 0x01u,   /* DLPF_CFG=1: Accel 184Hz, Gyro 188Hz */
-        .sampleRateDiv= 0x00u    /* Sample rate = Gyro rate / (1 + 0) */
+        .dlpfConfig   = 0x01u,
+        .sampleRateDiv= 0x00u
     };
     return MPU6050_InitWithConfig(&defaultCfg);
 }
@@ -206,30 +187,25 @@ bool MPU6050_InitWithConfig(const MPU6050_Config_t *cfg)
 {
     if (cfg == NULL) return false;
 
-    /* 1. Verify device presence */
     uint8_t whoami = 0x00u;
     if (!MPU6050_WhoAmI(&whoami)) return false;
     if (whoami != MPU6050_WHO_AM_I_VAL) return false;
 
-    /* 2. Reset device */
     if (!MPU6050_Reset()) return false;
 
-    /* 3. Wake up: clear sleep bit, select PLL with X-axis gyro as clock */
     if (!mpu6050_write_reg(MPU6050_REG_PWR_MGMT_1, 0x01u)) return false;
 
-    /* 4. Configure DLPF */
     if (!mpu6050_write_reg(MPU6050_REG_CONFIG, cfg->dlpfConfig & 0x07u))
         return false;
 
-    /* 5. Set sample rate divider */
     if (!mpu6050_write_reg(MPU6050_REG_SMPLRT_DIV, cfg->sampleRateDiv))
         return false;
 
-    /* 6. Set gyroscope full-scale range */
     if (!MPU6050_SetGyroFS(cfg->gyroFS)) return false;
-
-    /* 7. Set accelerometer full-scale range */
     if (!MPU6050_SetAccelFS(cfg->accelFS)) return false;
+
+    /* 初始化零偏为 0 */
+    s_gyroZeroX = s_gyroZeroY = s_gyroZeroZ = 0.0f;
 
     return true;
 }
@@ -269,7 +245,6 @@ bool MPU6050_ReadAll(MPU6050_Data_t *out)
 {
     if (out == NULL) return false;
 
-    /* Read 14 bytes in one burst: ACCEL(6) + TEMP(2) + GYRO(6) */
     uint8_t buf[14];
     if (!mpu6050_read_regs(MPU6050_REG_ACCEL_XOUT_H, buf, 14u)) return false;
 
@@ -287,8 +262,64 @@ bool MPU6050_ReadAll(MPU6050_Data_t *out)
     out->gx   = (float)rawGx * s_gyroScale;
     out->gy   = (float)rawGy * s_gyroScale;
     out->gz   = (float)rawGz * s_gyroScale;
-    /* Datasheet formula: Temp(°C) = RawTemp / 340.0 + 36.53 */
     out->temp = (float)rawT / 340.0f + 36.53f;
+
+    return true;
+}
+
+/* ---------- 新增零偏校准功能实现 ---------- */
+
+bool MPU6050_CalibrateGyro(uint16_t samples)
+{
+    if (samples == 0) return false;
+
+    float sumX = 0.0f, sumY = 0.0f, sumZ = 0.0f;
+    uint16_t validSamples = 0;
+
+    for (uint16_t i = 0; i < samples; i++) {
+        MPU6050_Data_t data;
+        if (MPU6050_ReadAll(&data)) {
+            sumX += data.gx;
+            sumY += data.gy;
+            sumZ += data.gz;
+            validSamples++;
+        }
+        /* 简单延时，保证采样间隔均匀 */
+        volatile uint32_t delay = 1000;  // 约 1ms 延时（32MHz）
+        while (delay--) __NOP();
+    }
+
+    if (validSamples == 0) return false;
+
+    s_gyroZeroX = sumX / validSamples;
+    s_gyroZeroY = sumY / validSamples;
+    s_gyroZeroZ = sumZ / validSamples;
+
+    return true;
+}
+
+void MPU6050_GetGyroZero(float *x, float *y, float *z)
+{
+    if (x) *x = s_gyroZeroX;
+    if (y) *y = s_gyroZeroY;
+    if (z) *z = s_gyroZeroZ;
+}
+
+void MPU6050_SetGyroZero(float x, float y, float z)
+{
+    s_gyroZeroX = x;
+    s_gyroZeroY = y;
+    s_gyroZeroZ = z;
+}
+
+bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out)
+{
+    if (!MPU6050_ReadAll(out)) return false;
+
+    /* 减去零偏 */
+    out->gx -= s_gyroZeroX;
+    out->gy -= s_gyroZeroY;
+    out->gz -= s_gyroZeroZ;
 
     return true;
 }
