@@ -3,7 +3,7 @@
 float eOld = 0.0f;
 
 // 中间四个光电返回直线pid结果
-float Grayscale_Line(bool *sensor_values, PID *pid) {
+float Grayscale_Line(bool *sensor_values) {
 	// static float wNow, eOld, ePrev;
 	// error>0 左转
 	static float error;

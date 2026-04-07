@@ -7,6 +7,7 @@
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
 #include "ultrasonic/ultrasonic.h"
+#include "MCU6050/mcu6050Control.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -21,6 +22,8 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
+//转角pid
+PID anglePid = {0.0f,0.0f,0.0f,0.0f,0,10};
 
 // 基础速度
 int BaseSpeed = 5000;
@@ -47,10 +50,17 @@ int StageFlag = 0;
 // 蓝牙时间戳
 uint32_t lastBluetoothTime = 0;
 
+
+//串口相关
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
-MPU6050_Data_t data;
 volatile uint8_t recv0_flag = 0;
+
+//MPU相关
+MPU6050_RawData_t MPU6050Data;
+float nowAngle = 0;
+
+//灰度循迹地址
 bool grayscale[8];
 
 volatile int32_t motorRightSpeed = 0;
@@ -135,15 +145,15 @@ int main(void) {
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
-		if (getTimeMs(nowTime, lastIMUTime) > 50) {
+		if (getTimeMs(nowTime, lastIMUTime) > 20) {
+			int32_t t = getTimeMs(nowTime, lastIMUTime);
+			anglePid.t = t;
 			lastIMUTime = nowTime;
-
-
-			
-			MPU6050_ReadAll(&data);
-			// printf("ax:%f",data.ax);
+			MPU6050_ReadGyroRaw(&MPU6050Data);
+			nowAngle+=MPU6050Data.z *t;
+			Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
 		}
-
+		
 		// if (getTimeMs(nowTime, lastStageTime) > 10) {
 		// 	if (command[StageIndex] == 1) {
 		// 		// RUSH
@@ -191,23 +201,23 @@ int main(void) {
 
 		// }
 
-		// // 基础循迹
-		//  if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
-		//  	lastGrayscaleTime = nowTime;
-		//  	Motor_FixError(Grayscale_Line(grayscale, &garyscalePid));
+		// 基础循迹
+		 if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
+		 	lastGrayscaleTime = nowTime;
+		 	Motor_FixError(Grayscale_Line(grayscale));
 
-		// }
-		//超声波测距
-		if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
-			lastUltrasonicTime=nowTime;
-            distance=Ultrasonic_GetDistance();
-			if(distance>20.0 || distance == 0.0){
-				printf("前方无障碍\r\n");
-			}
-			else{
-				printf("前方有障碍且障碍距离为%.1f cm\r\n",distance);
-			}
 		}
+		// //超声波测距
+		// if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
+		// 	lastUltrasonicTime=nowTime;
+        //     distance=Ultrasonic_GetDistance();
+		// 	if(distance>20.0 || distance == 0.0){
+		// 		printf("前方无障碍\r\n");
+		// 	}
+		// 	else{
+		// 		printf("前方有障碍且障碍距离为%.1f cm\r\n",distance);
+		// 	}
+		// }
 		// uint32_t now = getNowMs();
 		// float dt = (float)(now - last_time) / 1000.0f;
 		// if (dt > 0.1f)
@@ -285,6 +295,9 @@ void GROUP1_IRQHandler(void) {
 			motorRightCount++;
 		else
 			motorRightCount--;
+	}
+	if (gpioB_iidx == Distance_Echo_IIDX) {
+		DL_GPIO_clearInterruptStatus(Distance_PORT, Distance_Echo_PIN);
 	}
 }
 

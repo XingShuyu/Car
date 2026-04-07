@@ -28,7 +28,9 @@
 ------------------------------------------------------------------ */
 #define SOUND_SPEED_CM_PER_US   0.0343f     // 声速 cm/μs，20°C
 #define MAX_DISTANCE_CM          20.0f     // 最大测量距离 0.2m
-#define TIMEOUT_US              23300.0f   // 约 23300μs
+#define TIMEOUT_US               23300U    // 约 23300μs
+#define TRIG_PULSE_US               12U
+#define MIN_VALID_ECHO_US          100U    // 低于 100us 通常是串扰/毛刺
 void Ultrasonic_Init(void) {
     // 配置 Trig 为输出，初始低电平
     DL_GPIO_initDigitalOutput(Distance_Trig_IOMUX);
@@ -40,10 +42,18 @@ void Ultrasonic_Init(void) {
 float Ultrasonic_GetDistance(void) {
     uint32_t start_us, end_us;
 
+    /* 等待上一次回波结束，避免把残留高电平当作新回波 */
+    uint32_t idle_start = getNowUs();
+    while (DL_GPIO_readPins(ECHO_PORT, ECHO_PIN) != 0) {
+        if (getTimeUs(getNowUs(), idle_start) > TIMEOUT_US) {
+            return 0.0f;
+        }
+    }
+
     /* 1. 发送 12μs 高电平触发脉冲 */
     DL_GPIO_setPins(TRIG_PORT, TRIG_PIN);
     uint32_t start0 = getNowUs();
-    while (getTimeUs(getNowUs(), start0) < 12);
+    while (getTimeUs(getNowUs(), start0) < TRIG_PULSE_US);
     DL_GPIO_clearPins(TRIG_PORT, TRIG_PIN);
 
     /* 2. 等待 Echo 变为高电平（模块开始发射） */
@@ -65,7 +75,18 @@ float Ultrasonic_GetDistance(void) {
 
     /* 4. 计算距离（getTimeUs 安全处理回绕） */
     uint32_t duration_us = getTimeUs(end_us, start_us);
+
+    /* 过滤过短脉冲，避免固定几十微秒的假回波 */
+    if (duration_us < MIN_VALID_ECHO_US) {
+        return 0.0f;
+    }
+
     float distance = (float)duration_us * SOUND_SPEED_CM_PER_US / 2.0f;
+
+    if (distance > MAX_DISTANCE_CM) {
+        return 0.0f;
+    }
+
     printf("duration_us = %lu us, distance = %.2f cm\n", duration_us, distance);
     
     return distance;

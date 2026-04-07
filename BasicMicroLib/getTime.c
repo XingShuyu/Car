@@ -27,20 +27,20 @@ static uint64_t getExtendedTicks(void) {
     return ((uint64_t) overflow1 * period) + ((period - 1U) - current);
 }
 
-uint32_t getNowUs(void) {
+inline uint32_t getNowUs(void) {
     uint64_t ticks = getExtendedTicks();
     return (uint32_t) (ticks / (CPUCLK_FREQ / 1000000U));
 }
 
-uint32_t getNowMs(void) {
+inline uint32_t getNowMs(void) {
     uint64_t ticks = getExtendedTicks();
     return (uint32_t) (ticks / (CPUCLK_FREQ / 1000U));
 }
 
-uint32_t getTimeUs(uint32_t nowUs, uint32_t lastUs) {
+inline uint32_t getTimeUs(uint32_t nowUs, uint32_t lastUs) {
     return nowUs - lastUs;
 }
 
-uint32_t getTimeMs(uint32_t nowMs, uint32_t lastMs) {
+inline uint32_t getTimeMs(uint32_t nowMs, uint32_t lastMs) {
     return nowMs - lastMs;
 }
