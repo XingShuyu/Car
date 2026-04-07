@@ -102,7 +102,7 @@ void Motor_Brake(void) {
 									 GPIO_MotorRight_C1_IDX); // 速度脚低电平
 }
 
-void Motor_SetAccuSpeed(int32_t left_speed, int32_t right_speed) {
+inline void Motor_SetAccuSpeed(int32_t left_speed, int32_t right_speed) {
 	leftBaseSpeed = left_speed;
 	leftTargetSpeed = left_speed;
 	rightBaseSpeed = right_speed;
@@ -113,12 +113,15 @@ void Motor_SetAccuSpeed(int32_t left_speed, int32_t right_speed) {
 // pid纠正速度
 void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 	int32_t leftBias, rightBias; // 定义相关变量
-	static int32_t leftLast_bias,rightLast_bias,leftPrev_bias,rightPrev_bias,leftRealSpeed,rightRealSpeed,leftTemp,rightTemp; // 静态变量，函数调用结束后其值依然存在
+	static int32_t leftLast_bias, rightLast_bias, leftPrev_bias, rightPrev_bias,
+		leftRealSpeed, rightRealSpeed, leftTemp,
+		rightTemp; // 静态变量，函数调用结束后其值依然存在
 	leftBias = leftTargetSpeed - leftSpeed;	   // 求速度偏差
 	rightBias = rightTargetSpeed - rightSpeed; // 求速度偏差
 	// printf("Back:%d\r\n",leftBias);
-	leftTemp +=	PID_calculate(motorPID, leftBias, leftLast_bias,leftPrev_bias);
-	rightTemp += PID_calculate(motorPID, rightBias, rightLast_bias,rightPrev_bias);
+	leftTemp += PID_calculate(motorPID, leftBias, leftLast_bias, leftPrev_bias);
+	rightTemp +=
+		PID_calculate(motorPID, rightBias, rightLast_bias, rightPrev_bias);
 	leftRealSpeed += leftTemp;
 	rightRealSpeed += rightTemp;
 	leftPrev_bias = leftLast_bias;
@@ -126,24 +129,22 @@ void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 	leftLast_bias = leftBias;
 	rightLast_bias = rightBias;
 	// printf("Back:%d\r\n",(int)rightBias);
-	Motor_SetSpeed(leftRealSpeed/90 , rightRealSpeed/90);
+	Motor_SetSpeed(leftRealSpeed / 90, rightRealSpeed / 90);
 }
 
 // 根据pid返回值修改目标速度
-void Motor_FixError(float error) {
+inline void Motor_FixError(float error) {
 	leftTargetSpeed = leftBaseSpeed * (1 - error);
 	rightTargetSpeed = rightBaseSpeed * (1 + error);
 }
 
-void Rush(void){
-	Motor_SetAccuSpeed(5000,5000);
-	delay_ms(500);
-	Motor_SetAccuSpeed(0,0);
+inline void Motor_TurnAngle(float angleError) {
+	leftTargetSpeed = leftBaseSpeed * angleError;
+	rightTargetSpeed = rightBaseSpeed * angleError;
 }
 
-void RightRound(void){
-	// Rush();
-	Motor_SetAccuSpeed(5000, -5000);
-	while(_read_channel_stable(4)==false)delay_ms(50);
-	Motor_SetAccuSpeed(0,0);
+void Rush(void) {
+	Motor_SetAccuSpeed(5000, 5000);
+	delay_ms(500);
+	Motor_SetAccuSpeed(0, 0);
 }

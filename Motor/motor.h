@@ -41,10 +41,8 @@ void Motor_PidSpeed(PID *motorPID,int32_t leftSpeed,int32_t rightSpeed);
 
 //根据pid值修正速度
 void Motor_FixError(float error);
-//根据pid值左转弯
-void Turn_Left(float error);
-//根据pid值右转弯
-void Turn_Right(float error);
+//根据pid值转弯
+void Motor_TurnAngle(float angleError);
 
 void Rush(void);
 
