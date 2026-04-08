@@ -299,9 +299,6 @@ void GROUP1_IRQHandler(void) {
 		else
 			motorRightCount--;
 	}
-	if (gpioB_iidx == Distance_Echo_IIDX) {
-		DL_GPIO_clearInterruptStatus(Distance_PORT, Distance_Echo_PIN);
-	}
 }
 
 // 串口的中断服务函数
