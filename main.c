@@ -145,6 +145,9 @@ int main(void) {
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
+		/*直角转弯
+		 * 不可以和循迹一起使用
+		 */
 		if (getTimeMs(nowTime, lastIMUTime) > 100) {
 			int32_t t = getTimeMs(nowTime, lastIMUTime);
 			anglePid.t = t;
