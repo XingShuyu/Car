@@ -92,7 +92,7 @@ int main(void) {
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
-	NVIC_EnableIRQ(GPIO_MULTIPLE_GPIOB_INT_IRQN);
+	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
 	Ultrasonic_Init();//初始化超声波函数
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	/*
