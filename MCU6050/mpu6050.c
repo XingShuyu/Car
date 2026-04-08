@@ -253,6 +253,12 @@ bool MPU6050_ReadGyroRaw(MPU6050_RawData_t *out)
     out->x = (int16_t)((buf[0] << 8) | buf[1]);
     out->y = (int16_t)((buf[2] << 8) | buf[3]);
     out->z = (int16_t)((buf[4] << 8) | buf[5]);
+    if (out->z>-50 && out->z<50) {
+        out->z = 0;
+    }
+    else {
+        out->z = out->z*s_gyroScale;
+    }
     return true;
 }
 

@@ -7,7 +7,7 @@ float Grayscale_Line(bool *sensor_values) {
 	// static float wNow, eOld, ePrev;
 	// error>0 左转
 	static float error;
-	Grayscale_Sensor_Read_Main(sensor_values);
+	Grayscale_Sensor_Read_All(sensor_values);
 	// // 重心归一化
 	// float eRow = (-2.0 * sensor_values[2] - 1.5 * sensor_values[3] +
 	// 			  1.5 * sensor_values[4] + 2.0 * sensor_values[5]) /
@@ -25,16 +25,28 @@ float Grayscale_Line(bool *sensor_values) {
 		error = 0.025;
 	}
 	if (sensor_values[5] == 1 && sensor_values[4] == 1) {
-		error = 0.035;
+		error = 0.04;
 	}
 	if (sensor_values[2] == 1 && sensor_values[3] == 1) {
-		error = -0.035;
+		error = -0.04;
 	}
 	if (sensor_values[2] == 1 && sensor_values[3] == 0) {
-		error = -0.05;
+		error = -0.055;
 	}
 	if (sensor_values[5] == 1 && sensor_values[1] == 0) {
-		error = 0.05;
+		error = 0.055;
+	}
+	if (sensor_values[1] == 1) {
+		error = -0.5;
+	}
+	if (sensor_values[0] == 1) {
+		error = -1.0;
+	}
+	if (sensor_values[6] == 1) {
+		error = 0.5;
+	}
+	if (sensor_values[7] == 1) {
+		error = 1.0;
 	}
 	return error;
 

@@ -140,7 +140,7 @@ inline void Motor_FixError(float error) {
 
 inline void Motor_TurnAngle(float angleError) {
 	leftTargetSpeed = leftBaseSpeed * angleError;
-	rightTargetSpeed = rightBaseSpeed * angleError;
+	rightTargetSpeed = -rightBaseSpeed * angleError;
 }
 
 void Rush(void) {

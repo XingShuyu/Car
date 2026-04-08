@@ -23,7 +23,7 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
 //转角pid
-PID anglePid = {0.0f,0.0f,0.0f,0.0f,0,10};
+PID anglePid = {1.0f,0.0f,0.0f,0.0f,0,10};
 
 // 基础速度
 int BaseSpeed = 5000;
@@ -57,7 +57,7 @@ volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
 
 //MPU相关
-MPU6050_RawData_t MPU6050Data;
+MPU6050_Data_t MPU6050Data;
 float nowAngle = 0;
 
 //灰度循迹地址
@@ -113,7 +113,7 @@ int main(void) {
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// Rush();
-	Motor_SetAccuSpeed(60000, 60000);
+	Motor_SetAccuSpeed(30000, 30000);
 	// RightRound();
 
 	// 时间轴开始
@@ -145,13 +145,14 @@ int main(void) {
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
-		if (getTimeMs(nowTime, lastIMUTime) > 20) {
+		if (getTimeMs(nowTime, lastIMUTime) > 100) {
 			int32_t t = getTimeMs(nowTime, lastIMUTime);
 			anglePid.t = t;
 			lastIMUTime = nowTime;
-			MPU6050_ReadGyroRaw(&MPU6050Data);
-			nowAngle+=MPU6050Data.z *t;
-			Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
+			MPU6050_ReadAll(&MPU6050Data);
+			nowAngle+=MPU6050Data.gz *t/1000;
+
+			Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
 		}
 		
 		// if (getTimeMs(nowTime, lastStageTime) > 10) {
@@ -201,12 +202,12 @@ int main(void) {
 
 		// }
 
-		// 基础循迹
-		 if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
-		 	lastGrayscaleTime = nowTime;
-		 	Motor_FixError(Grayscale_Line(grayscale));
+		// // 基础循迹
+		//  if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
+		//  	lastGrayscaleTime = nowTime;
+		//  	Motor_FixError(Grayscale_Line(grayscale));
 
-		}
+		// }
 		// //超声波测距
 		// if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
 		// 	lastUltrasonicTime=nowTime;
@@ -233,8 +234,7 @@ int main(void) {
 		// if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
 		// 	lastGrayscaleTime = nowTime;
 		// 	// 输出结果（可通过串口查看）
-		// 	printf(
-		// 		"Yaw: %.1f deg",yaw_angle);
+		// 	printf("Back:%.2f",nowAngle);
 		// }
 	}
 }

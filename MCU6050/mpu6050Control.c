@@ -7,5 +7,6 @@ float Angle_PID_Calculate(PID *AngelPid, float targetAngle, float nowAngle) {
 	result += PID_calculate(AngelPid, error, oldError, prevError);
 	prevError = oldError;
 	oldError = error;
-	return result;
+	printf("Back:%.2f\r\n",result);
+	return result/90.0;
 }
