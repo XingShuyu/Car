@@ -2,12 +2,12 @@
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
 #include "GrayScale/Grayscale_Scan.h"
+#include "MCU6050/mcu6050Control.h"
 #include "MCU6050/mpu6050.h"
 #include "Motor/motor.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
 #include "ultrasonic/ultrasonic.h"
-#include "MCU6050/mcu6050Control.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -22,12 +22,12 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
-//转角pid
-PID anglePid = {1.0f,0.0f,0.0f,0.0f,0,10};
+// 转角pid
+PID anglePid = {0.0f, 0.0f, 0.0f, 0.0f, 0, 10};
 
 // 基础速度
-int BaseSpeed = 5000;
-//障碍物距离
+int BaseSpeed = 30000;
+// 障碍物距离
 float distance;
 //-------------------
 // 各种时间声明
@@ -37,8 +37,8 @@ uint32_t lastMotorSpeedTime = 0;
 uint32_t lastUartTime = 0;
 // 循迹时间戳
 uint32_t lastGrayscaleTime = 0;
-//超声波时间戳
-uint32_t lastUltrasonicTime=0;
+// 超声波时间戳
+uint32_t lastUltrasonicTime = 0;
 // IMU时间戳
 uint32_t lastIMUTime = 0;
 // 阶段时间戳
@@ -50,17 +50,16 @@ int StageFlag = 0;
 // 蓝牙时间戳
 uint32_t lastBluetoothTime = 0;
 
-
-//串口相关
+// 串口相关
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
 
-//MPU相关
-MPU6050_Data_t MPU6050Data;
+// MPU相关
+MPU6050_RawData_t MPU6050Data;
 float nowAngle = 0;
 
-//灰度循迹地址
+// 灰度循迹地址
 bool grayscale[8];
 
 volatile int32_t motorRightSpeed = 0;
@@ -70,17 +69,6 @@ volatile int32_t motorRightCount = 0;
 
 void process_imu_for_horizontal_motion(float dt);
 void buzzer_beep(void);
-void CarRight(void) {
-	Motor_Brake();
-	delay_ms(1000);
-	Motor_SetSpeed(1000, -1000);
-	delay_ms(400);
-	Motor_SetSpeed(600, 1000);
-	delay_ms(4000);
-	Motor_SetSpeed(1000, -1000);
-	delay_ms(400);
-	Motor_Brake();
-}
 
 int main(void) {
 	//--------------------------------------
@@ -93,8 +81,8 @@ int main(void) {
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
-	Ultrasonic_Init();//初始化超声波函数
-	USART_Init(); // 使能UART中断（接收依赖此步骤）
+	Ultrasonic_Init(); // 初始化超声波函数
+	USART_Init();	   // 使能UART中断（接收依赖此步骤）
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
 	 * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。
@@ -113,7 +101,7 @@ int main(void) {
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// Rush();
-	Motor_SetAccuSpeed(30000, 30000);
+	Motor_SetAccuSpeed(60000, 60000);
 	// RightRound();
 
 	// 时间轴开始
@@ -145,60 +133,128 @@ int main(void) {
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
-		/*直角转弯
-		 * 不可以和循迹一起使用
-		 */
-		if (getTimeMs(nowTime, lastIMUTime) > 100) {
-			int32_t t = getTimeMs(nowTime, lastIMUTime);
-			anglePid.t = t;
-			lastIMUTime = nowTime;
-			MPU6050_ReadAll(&MPU6050Data);
-			nowAngle+=MPU6050Data.gz *t/1000;
-
-			Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
-		}
-		
-		// if (getTimeMs(nowTime, lastStageTime) > 10) {
-		// 	if (command[StageIndex] == 1) {
-		// 		// RUSH
-		// 		if (StageFlag == 0) {
-		// 			Motor_SetAccuSpeed(5000, 5000);
-		// 			StageFlag++;
-		// 		}
-		// 		if (StageFlag < 10) {
-		// 			StageFlag++;
-		// 		} else {
-		// 			Motor_SetAccuSpeed(0, 0);
-		// 			StageFlag = 0;
-		// 			StageIndex++;
-		// 		}
-		// 	}
-		// 	if (command[StageIndex] == 2) {
-		// 		if (StageFlag == 0) {
-		// 			Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
-		// 			StageFlag++;
-		// 		}
-		// 		if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
-		// 			Motor_SetAccuSpeed(0, 0);
-		// 			Motor_Brake();
-		// 			StageFlag = 0;
-		// 			StageIndex++;
-		// 		}
-		// 	}
-		// 	if (command[StageIndex] == 3) {
-		// 		if (StageFlag == 0) {
-		// 			Motor_SetAccuSpeed(5000, -5000);
-		// 			StageFlag++;
-		// 		}
-		// 		if (StageFlag == 1 && _read_channel_stable(1)) {
-		// 			Motor_SetAccuSpeed(0, 0);
-		// 			Motor_Brake();
-		// 			StageFlag = 0;
-		// 			StageIndex++;
-		// 		}
-		// 	}
-		// 	lastStageTime = nowTime;
+		// if (getTimeMs(nowTime, lastIMUTime) > 20) {
+		// 	int32_t t = getTimeMs(nowTime, lastIMUTime);
+		// 	anglePid.t = t;
+		// 	lastIMUTime = nowTime;
+		// 	MPU6050_ReadGyroRaw(&MPU6050Data);
+		// 	nowAngle += MPU6050Data.z * t;
+		// 	Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
 		// }
+
+		if (getTimeMs(nowTime, lastStageTime) > 10) {
+			if (command[StageIndex] == 1) {
+				// RUSH
+				if (StageFlag == 0) {
+					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					StageFlag++;
+				}
+				if (StageFlag < 10) {
+					StageFlag++;
+				} else {
+					Motor_SetAccuSpeed(0, 0);
+					StageFlag = 0;
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 2) {
+				if (StageFlag == 0) {
+					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					StageFlag++;
+				}
+				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 3) {
+				int32_t t = getTimeMs(nowTime, lastIMUTime);
+				anglePid.t = t;
+				lastIMUTime = nowTime;
+				MPU6050_ReadGyroRaw(&MPU6050Data);
+				nowAngle += MPU6050Data.z * t;
+				Motor_TurnAngle(
+					Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
+				if (nowAngle > 85.0f && nowAngle < 95.0f) {
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 4) {
+				if (StageFlag == 0) {
+					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					StageFlag++;
+				}
+				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 5) {
+				int32_t t = getTimeMs(nowTime, lastIMUTime);
+				anglePid.t = t;
+				lastIMUTime = nowTime;
+				MPU6050_ReadGyroRaw(&MPU6050Data);
+				nowAngle += MPU6050Data.z * t;
+				Motor_TurnAngle(
+					Angle_PID_Calculate(&anglePid, -90.0f, nowAngle));
+				if (nowAngle > -95.0f && nowAngle < -85.0f) {
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 6) {
+				if (StageFlag == 0) {
+					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					StageFlag++;
+				}
+				if (StageFlag == 1 && Grayscale_Cross(grayscale, 0)) {
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
+					StageIndex++;
+				}
+			}
+			if (command[StageIndex] == 7) {
+				if (getTimeMs(nowTime, lastUltrasonicTime) > 1000) {
+					lastUltrasonicTime = nowTime;
+					distance = Ultrasonic_GetDistance();
+				}
+				if(distance<15.0f){
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
+					StageIndex++;
+				}
+				if(distance>40.0f){
+                   StageIndex=sizeof(command)/sizeof(int16_t)-1;
+				}
+			}
+			if(command[StageIndex] == 8){
+				int32_t t = getTimeMs(nowTime, lastIMUTime);
+				anglePid.t = t;
+				lastIMUTime = nowTime;
+				MPU6050_ReadGyroRaw(&MPU6050Data);
+				nowAngle += MPU6050Data.z * t;
+				Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
+				if (nowAngle > 175.0f && nowAngle < 185.0f) {
+					StageIndex++;
+					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					StageFlag=1;
+				}
+			}
+			if(command[StageIndex] == 9){
+				Grayscale_Sensor_Read_All(grayscale);
+				if(grayscale[0]==0&&grayscale[1]==0&&grayscale[2]==0&&grayscale[3]==0&&grayscale[4]==0&&grayscale[5]==0&&grayscale[6]==0&&grayscale[7]==0){
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					break;
+				}
+			}
+			lastStageTime = nowTime;
+		}
 
 		// if (getTimeMs(nowTime, lastGrayscaleTime) > 50 &&
 		// Grayscale_Cross(grayscale, 1)) { 	lastGrayscaleTime = nowTime;
@@ -206,20 +262,16 @@ int main(void) {
 		// }
 
 		// // 基础循迹
-		//  if(getTimeMs(nowTime, lastGrayscaleTime) > 10){
-		//  	lastGrayscaleTime = nowTime;
-		//  	Motor_FixError(Grayscale_Line(grayscale));
-
+		// if (getTimeMs(nowTime, lastGrayscaleTime) > 10) {
+		// 	lastGrayscaleTime = nowTime;
+		// 	Motor_FixError(Grayscale_Line(grayscale));
 		// }
-		// //超声波测距
-		// if(getTimeMs(nowTime, lastUltrasonicTime) > 1000){
-		// 	lastUltrasonicTime=nowTime;
-        //     distance=Ultrasonic_GetDistance();
-		// 	if(distance>20.0 || distance == 0.0){
-		// 		printf("前方无障碍\r\n");
-		// 	}
-		// 	else{
-		// 		printf("前方有障碍且障碍距离为%.1f cm\r\n",distance);
+		// // 判断十字路口
+		// if (Grayscale_Cross(grayscale, 0) == true) {
+		// 	// 超声波测距
+		// 	if (getTimeMs(nowTime, lastUltrasonicTime) > 1000) {
+		// 		lastUltrasonicTime = nowTime;
+		// 		distance = Ultrasonic_GetDistance();
 		// 	}
 		// }
 		// uint32_t now = getNowMs();
@@ -237,7 +289,8 @@ int main(void) {
 		// if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
 		// 	lastGrayscaleTime = nowTime;
 		// 	// 输出结果（可通过串口查看）
-		// 	printf("Back:%.2f",nowAngle);
+		// 	printf(
+		// 		"Yaw: %.1f deg",yaw_angle);
 		// }
 	}
 }
