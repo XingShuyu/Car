@@ -56,14 +56,14 @@ volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
 
 // MPU相关
-MPU6050_RawData_t MPU6050Data;
+MPU6050_Data_t MPU6050Data;
 float nowAngle = 0;
 
 // 灰度循迹地址
 bool grayscale[8];
 
-volatile float motorRightSpeed = 0;//	速度(m/s)
-volatile float motorLeftSpeed = 0;//	速度(m/s)
+volatile float motorRightSpeed = 0; //	速度(m/s)
+volatile float motorLeftSpeed = 0;	//	速度(m/s)
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 
@@ -105,7 +105,7 @@ int main(void) {
 	// RightRound();
 
 	// 时间轴开始
-	// buzzer_beep();
+	buzzer_beep();
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
 	while (1) {
@@ -128,8 +128,10 @@ int main(void) {
 			leftCountSnapshot = leftCountSnapshot / motorPid.t * 500;
 			rightCountSnapshot = rightCountSnapshot / motorPid.t * 500;
 
-			motorRightSpeed = (float)rightCountSnapshot/motorPid.t/4/500/28*204.2;
-			motorLeftSpeed = (float)leftCountSnapshot/motorPid.t/4/500/28*204.2;
+			motorRightSpeed =
+				(float)rightCountSnapshot / motorPid.t / 4 / 500 / 28 * 204.2;
+			motorLeftSpeed =
+				(float)leftCountSnapshot / motorPid.t / 4 / 500 / 28 * 204.2;
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
@@ -162,6 +164,9 @@ int main(void) {
 					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
 					StageFlag++;
 				}
+				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 1)) {
+					Motor_FixError(Grayscale_Line(grayscale));
+				}
 				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
@@ -170,14 +175,23 @@ int main(void) {
 				}
 			}
 			if (command[StageIndex] == 3) {
-				int32_t t = getTimeMs(nowTime, lastIMUTime);
+				if (StageFlag == 0) {
+					nowAngle = 0;
+					Grayscale_Zero(grayscale);
+					StageFlag++;
+				}
+				int32_t t = getTimeMs(nowTime, lastStageTime);
 				anglePid.t = t;
-				lastIMUTime = nowTime;
-				MPU6050_ReadGyroRaw(&MPU6050Data);
-				nowAngle += MPU6050Data.z * t;
+				lastStageTime = nowTime;
+				Motor_SetAccuSpeed(30000, 30000);
+				MPU6050_ReadAll(&MPU6050Data);
+				nowAngle += MPU6050Data.gz * t / 1000;
 				Motor_TurnAngle(
 					Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
 				if (nowAngle > 85.0f && nowAngle < 95.0f) {
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
 					StageIndex++;
 				}
 			}
@@ -186,7 +200,10 @@ int main(void) {
 					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
 					StageFlag++;
 				}
-				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
+				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 2)) {
+					Motor_FixError(Grayscale_Line(grayscale));
+				}
+				if (StageFlag == 1 && Grayscale_Cross(grayscale, 2)) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
 					StageFlag = 0;
@@ -194,14 +211,23 @@ int main(void) {
 				}
 			}
 			if (command[StageIndex] == 5) {
-				int32_t t = getTimeMs(nowTime, lastIMUTime);
+				if (StageFlag == 0) {
+					Grayscale_Zero(grayscale);
+					nowAngle = 0;
+					StageFlag++;
+				}
+				int32_t t = getTimeMs(nowTime, lastStageTime);
 				anglePid.t = t;
-				lastIMUTime = nowTime;
-				MPU6050_ReadGyroRaw(&MPU6050Data);
-				nowAngle += MPU6050Data.z * t;
+				lastStageTime = nowTime;
+				Motor_SetAccuSpeed(30000, 30000);
+				MPU6050_ReadAll(&MPU6050Data);
+				nowAngle += MPU6050Data.gz * t / 1000;
 				Motor_TurnAngle(
 					Angle_PID_Calculate(&anglePid, -90.0f, nowAngle));
 				if (nowAngle > -95.0f && nowAngle < -85.0f) {
+					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
+					StageFlag = 0;
 					StageIndex++;
 				}
 			}
@@ -209,6 +235,9 @@ int main(void) {
 				if (StageFlag == 0) {
 					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
 					StageFlag++;
+				}
+				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 0)) {
+					Motor_FixError(Grayscale_Line(grayscale));
 				}
 				if (StageFlag == 1 && Grayscale_Cross(grayscale, 0)) {
 					Motor_SetAccuSpeed(0, 0);
@@ -222,36 +251,52 @@ int main(void) {
 					lastUltrasonicTime = nowTime;
 					distance = Ultrasonic_GetDistance();
 				}
-				if(distance<15.0f){
+				if (distance < 15.0f) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
-					StageFlag = 0;
 					StageIndex++;
 				}
-				if(distance>40.0f){
-                   StageIndex=sizeof(command)/sizeof(int16_t)-1;
+				if (distance > 40.0f) {
+					StageIndex = sizeof(command) / sizeof(int16_t) - 1;
 				}
 			}
-			if(command[StageIndex] == 8){
-				int32_t t = getTimeMs(nowTime, lastIMUTime);
+			if (command[StageIndex] == 8) {
+				if (StageFlag == 0) {
+					Grayscale_Zero(grayscale);
+					nowAngle = 0;
+					StageFlag++;
+				}
+				int32_t t = getTimeMs(nowTime, lastStageTime);
 				anglePid.t = t;
-				lastIMUTime = nowTime;
-				MPU6050_ReadGyroRaw(&MPU6050Data);
-				nowAngle += MPU6050Data.z * t;
-				Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
+				lastStageTime = nowTime;
+				Motor_SetAccuSpeed(30000, 30000);
+				MPU6050_ReadAll(&MPU6050Data);
+				nowAngle += MPU6050Data.gz * t / 1000;
+				Motor_TurnAngle(
+					Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
 				if (nowAngle > 175.0f && nowAngle < 185.0f) {
 					StageIndex++;
-					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
-					StageFlag=1;
+					StageFlag=0;
+					Motor_SetAccuSpeed(0, 0);
 				}
 			}
-			if(command[StageIndex] == 9){
-				Grayscale_Sensor_Read_All(grayscale);
-				if(grayscale[0]==0&&grayscale[1]==0&&grayscale[2]==0&&grayscale[3]==0&&grayscale[4]==0&&grayscale[5]==0&&grayscale[6]==0&&grayscale[7]==0){
+			if (command[StageIndex] == 9) {
+				Motor_SetAccuSpeed(30000, 30000);
+				Motor_FixError(Grayscale_Line(grayscale));
+				if (grayscale[0] == 0 && grayscale[1] == 0 &&
+					grayscale[2] == 0 && grayscale[3] == 0 &&
+					grayscale[4] == 0 && grayscale[5] == 0 &&
+					grayscale[6] == 0 && grayscale[7] == 0) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
 					break;
 				}
+			}
+			if (command[StageIndex] == 10) {
+				Motor_SetAccuSpeed(0, 0);
+				Motor_Brake();
+				buzzer_beep();
+				StageIndex++;
 			}
 			lastStageTime = nowTime;
 		}
