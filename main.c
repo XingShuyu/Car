@@ -62,8 +62,8 @@ float nowAngle = 0;
 // 灰度循迹地址
 bool grayscale[8];
 
-volatile int32_t motorRightSpeed = 0;
-volatile int32_t motorLeftSpeed = 0;
+volatile float motorRightSpeed = 0;//	速度(m/s)
+volatile float motorLeftSpeed = 0;//	速度(m/s)
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 
@@ -128,8 +128,8 @@ int main(void) {
 			leftCountSnapshot = leftCountSnapshot / motorPid.t * 500;
 			rightCountSnapshot = rightCountSnapshot / motorPid.t * 500;
 
-			// motorRightSpeed = rightCountSnapshot/95;
-			// motorLeftSpeed = leftCountSnapshot/95;
+			motorRightSpeed = (float)rightCountSnapshot/motorPid.t/4/500/28*204.2;
+			motorLeftSpeed = (float)leftCountSnapshot/motorPid.t/4/500/28*204.2;
 
 			Motor_PidSpeed(&motorPid, leftCountSnapshot, rightCountSnapshot);
 		}
