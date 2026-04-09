@@ -232,20 +232,8 @@ int main(void) {
                    StageIndex=sizeof(command)/sizeof(int16_t)-1;
 				}
 			}
+			
 			if(command[StageIndex] == 8){
-				int32_t t = getTimeMs(nowTime, lastIMUTime);
-				anglePid.t = t;
-				lastIMUTime = nowTime;
-				MPU6050_ReadGyroRaw(&MPU6050Data);
-				nowAngle += MPU6050Data.z * t;
-				Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
-				if (nowAngle > 175.0f && nowAngle < 185.0f) {
-					StageIndex++;
-					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
-					StageFlag=1;
-				}
-			}
-			if(command[StageIndex] == 9){
 				Grayscale_Sensor_Read_All(grayscale);
 				if(grayscale[0]==0&&grayscale[1]==0&&grayscale[2]==0&&grayscale[3]==0&&grayscale[4]==0&&grayscale[5]==0&&grayscale[6]==0&&grayscale[7]==0){
 					Motor_SetAccuSpeed(0, 0);
