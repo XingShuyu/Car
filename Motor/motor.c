@@ -90,15 +90,15 @@ void Motor_Brake(void) {
 	 */
 
 	// 左轮滑行停止
-	DL_TimerG_setCaptureCompareValue(MotorLeft_INST, 0,
+	DL_TimerG_setCaptureCompareValue(MotorLeft_INST, PWM_PERIOD,
 									 GPIO_MotorLeft_C0_IDX); // 方向脚低电平
-	DL_TimerG_setCaptureCompareValue(MotorLeft_INST, 0,
+	DL_TimerG_setCaptureCompareValue(MotorLeft_INST, PWM_PERIOD,
 									 GPIO_MotorLeft_C1_IDX); // 速度脚低电平
 
 	// 右轮滑行停止
-	DL_TimerG_setCaptureCompareValue(MotorRight_INST, 0,
+	DL_TimerG_setCaptureCompareValue(MotorRight_INST, PWM_PERIOD,
 									 GPIO_MotorRight_C0_IDX); // 方向脚低电平
-	DL_TimerG_setCaptureCompareValue(MotorRight_INST, 0,
+	DL_TimerG_setCaptureCompareValue(MotorRight_INST, PWM_PERIOD,
 									 GPIO_MotorRight_C1_IDX); // 速度脚低电平
 }
 
@@ -120,8 +120,7 @@ void Motor_PidSpeed(PID *motorPID, int32_t leftSpeed, int32_t rightSpeed) {
 	rightBias = rightTargetSpeed - rightSpeed; // 求速度偏差
 	// printf("Back:%d\r\n",leftBias);
 	leftTemp += PID_calculate(motorPID, leftBias, leftLast_bias, leftPrev_bias);
-	rightTemp +=
-		PID_calculate(motorPID, rightBias, rightLast_bias, rightPrev_bias);
+	rightTemp += PID_calculate(motorPID, rightBias, rightLast_bias, rightPrev_bias);
 	leftRealSpeed += leftTemp;
 	rightRealSpeed += rightTemp;
 	leftPrev_bias = leftLast_bias;

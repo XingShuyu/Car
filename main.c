@@ -22,8 +22,10 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 电机pid 0.003
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
-// 转角pid
-PID anglePid = {0.0f, 0.0f, 0.0f, 0.0f, 0, 10};
+// 循迹pid
+PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
+//循迹error
+float grayscaleError=0.0;
 
 // 基础速度
 int BaseSpeed = 30000;
@@ -165,7 +167,8 @@ int main(void) {
 					StageFlag++;
 				}
 				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 1)) {
-					Motor_FixError(Grayscale_Line(grayscale));
+					grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+					Motor_FixError(Grayscale_Line(&grayscalePid, grayscale));
 				}
 				if (StageFlag == 1 && Grayscale_Cross(grayscale, 1)) {
 					Motor_SetAccuSpeed(0, 0);
@@ -181,13 +184,11 @@ int main(void) {
 					StageFlag++;
 				}
 				int32_t t = getTimeMs(nowTime, lastStageTime);
-				anglePid.t = t;
 				lastStageTime = nowTime;
 				Motor_SetAccuSpeed(30000, 30000);
 				MPU6050_ReadAll(&MPU6050Data);
 				nowAngle += MPU6050Data.gz * t / 1000;
-				Motor_TurnAngle(
-					Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
+				Motor_TurnAngle(Angle_PID_Calculate(90.0f, nowAngle));
 				if (nowAngle > 85.0f && nowAngle < 95.0f) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
@@ -201,7 +202,8 @@ int main(void) {
 					StageFlag++;
 				}
 				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 2)) {
-					Motor_FixError(Grayscale_Line(grayscale));
+					grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+					Motor_FixError(Grayscale_Line(&grayscalePid, grayscale));
 				}
 				if (StageFlag == 1 && Grayscale_Cross(grayscale, 2)) {
 					Motor_SetAccuSpeed(0, 0);
@@ -217,13 +219,11 @@ int main(void) {
 					StageFlag++;
 				}
 				int32_t t = getTimeMs(nowTime, lastStageTime);
-				anglePid.t = t;
 				lastStageTime = nowTime;
 				Motor_SetAccuSpeed(30000, 30000);
 				MPU6050_ReadAll(&MPU6050Data);
 				nowAngle += MPU6050Data.gz * t / 1000;
-				Motor_TurnAngle(
-					Angle_PID_Calculate(&anglePid, -90.0f, nowAngle));
+				Motor_TurnAngle(Angle_PID_Calculate(-90.0f, nowAngle));
 				if (nowAngle > -95.0f && nowAngle < -85.0f) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
@@ -237,7 +237,8 @@ int main(void) {
 					StageFlag++;
 				}
 				if (StageFlag == 1 && !Grayscale_Cross(grayscale, 0)) {
-					Motor_FixError(Grayscale_Line(grayscale));
+					grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+					Motor_FixError(Grayscale_Line(&grayscalePid, grayscale));
 				}
 				if (StageFlag == 1 && Grayscale_Cross(grayscale, 0)) {
 					Motor_SetAccuSpeed(0, 0);
@@ -250,13 +251,14 @@ int main(void) {
 				if (getTimeMs(nowTime, lastUltrasonicTime) > 1000) {
 					lastUltrasonicTime = nowTime;
 					distance = Ultrasonic_GetDistance();
+					printf("distance:%.2f",distance);
 				}
-				if (distance < 15.0f) {
+				if (distance < 40.0f) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
 					StageIndex++;
 				}
-				if (distance > 40.0f) {
+				if (distance >= 40.0f) {
 					StageIndex = sizeof(command) / sizeof(int16_t) - 1;
 				}
 			}
@@ -267,22 +269,20 @@ int main(void) {
 					StageFlag++;
 				}
 				int32_t t = getTimeMs(nowTime, lastStageTime);
-				anglePid.t = t;
-				lastStageTime = nowTime;
 				Motor_SetAccuSpeed(30000, 30000);
 				MPU6050_ReadAll(&MPU6050Data);
 				nowAngle += MPU6050Data.gz * t / 1000;
-				Motor_TurnAngle(
-					Angle_PID_Calculate(&anglePid, 180.0f, nowAngle));
+				Motor_TurnAngle(Angle_PID_Calculate(180.0f, nowAngle));
 				if (nowAngle > 175.0f && nowAngle < 185.0f) {
 					StageIndex++;
-					StageFlag=0;
+					StageFlag = 0;
 					Motor_SetAccuSpeed(0, 0);
 				}
 			}
 			if (command[StageIndex] == 9) {
 				Motor_SetAccuSpeed(30000, 30000);
-				Motor_FixError(Grayscale_Line(grayscale));
+				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+				Motor_FixError(Grayscale_Line(&grayscalePid, grayscale));
 				if (grayscale[0] == 0 && grayscale[1] == 0 &&
 					grayscale[2] == 0 && grayscale[3] == 0 &&
 					grayscale[4] == 0 && grayscale[5] == 0 &&
