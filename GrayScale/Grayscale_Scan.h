@@ -10,5 +10,6 @@
 
 float Grayscale_Line(bool *sensor_values);
 bool Grayscale_Cross(bool *sensor_values, int status);
+void Grayscale_Zero(bool *sensor_values);
 
 #endif
