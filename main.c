@@ -13,6 +13,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include"Display/display.h"
 
 #define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
@@ -83,6 +84,15 @@ int main(void) {
 	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
 	Ultrasonic_Init(); // 初始化超声波函数
 	USART_Init();	   // 使能UART中断（接收依赖此步骤）
+	
+    // 初始化显示屏
+    Display_Init();
+
+    // 可选：开机显示欢迎信息
+    Display_ShowString(0, 0, "Car Ready");
+    delay_ms(2000);
+    Display_Clear();
+
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
 	 * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。

@@ -42,7 +42,7 @@ void Display_ShowSpeed(float speed);
 void Display_ShowValue(const char *label, float value);
 
 /**
- * @brief 刷新显示（如果需要立即输出，此函数通常内嵌在显示函数中）
+ * @brief 刷新显示（将 framebuffer 全量写入 OLED）
  */
 void Display_Update(void);
 

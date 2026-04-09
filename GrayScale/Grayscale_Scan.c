@@ -1,6 +1,5 @@
 #include "Grayscale_Scan.h"
 
-float eOld = 0.0f;
 float sensor_weight[8] = {-4.0,-3.0,-2.0,-1.0,1.0,2.0,3.0,4.0};
 
 
@@ -15,7 +14,7 @@ float Grayscale_Line(bool *sensor_values) {
 	weightedSum=0;
 	activeSensor=0;
 	// 重心归一化
-	for(int i = 0,i<8,i++){
+	for(int i = 0;i<8;i++){
 		if (sensor_values[i]) {
 			weightedSum+=sensor_weight[i];
 			activeSensor++;
@@ -27,7 +26,7 @@ float Grayscale_Line(bool *sensor_values) {
 	else {
 		eRow=weightedSum/(float)activeSensor;
 	}
-	float eNew = A * eNew + (1 - A) * eRow;
+	eNew = A * eNew + (1 - A) * eRow;
 	// // 计算转向参数
 	// if (sensor_values[3] == 1 && sensor_values[4] == 1) {
 	// 	error = 0;
