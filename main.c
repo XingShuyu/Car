@@ -1,6 +1,7 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Display/display.h"
 #include "GrayScale/Grayscale_Scan.h"
 #include "MCU6050/mcu6050Control.h"
 #include "MCU6050/mpu6050.h"
@@ -13,7 +14,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include"Display/display.h"
 
 #define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
@@ -25,8 +25,6 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 PID motorPid = {0.34f, 0.0005f, 0.00001f, 1000000.0, 0, 50};
 // 循迹pid
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
-//循迹error
-float grayscaleError=0.0;
 
 // 基础速度
 int BaseSpeed = 30000;
@@ -69,6 +67,7 @@ volatile float motorRightSpeed = 0; //	速度(m/s)
 volatile float motorLeftSpeed = 0;	//	速度(m/s)
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
+int leftDistance, rightDistance;
 
 void process_imu_for_horizontal_motion(float dt);
 void buzzer_beep(void);
@@ -86,14 +85,14 @@ int main(void) {
 	NVIC_EnableIRQ(MotorMonitor_GPIOB_INT_IRQN);
 	Ultrasonic_Init(); // 初始化超声波函数
 	USART_Init();	   // 使能UART中断（接收依赖此步骤）
-	
-    // 初始化显示屏
-    Display_Init();
 
-    // 可选：开机显示欢迎信息
-    Display_ShowString(0, 0, "Car Ready");
-    delay_ms(2000);
-    Display_Clear();
+	// 初始化显示屏
+	// Display_Init();
+
+	// // 可选：开机显示欢迎信息
+	// Display_ShowString(0, 0, "Car Ready");
+	// delay_ms(2000);
+	// Display_Clear();
 
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
@@ -139,6 +138,8 @@ int main(void) {
 			__enable_irq();
 			leftCountSnapshot = leftCountSnapshot / motorPid.t * 500;
 			rightCountSnapshot = rightCountSnapshot / motorPid.t * 500;
+			leftDistance += leftCountSnapshot;
+			rightDistance += rightCountSnapshot;
 
 			motorRightSpeed =
 				(float)rightCountSnapshot / motorPid.t / 4 / 500 / 28 * 204.2;
@@ -161,12 +162,14 @@ int main(void) {
 				// RUSH
 				if (StageFlag == 0) {
 					Motor_SetAccuSpeed(BaseSpeed, BaseSpeed);
+					rightDistance = 0;
+					leftDistance = 0;
 					StageFlag++;
 				}
-				if (StageFlag < 10) {
-					StageFlag++;
-				} else {
+				if (StageFlag == 1 &&
+					(leftDistance > 40000 && rightDistance > 40000)) {
 					Motor_SetAccuSpeed(0, 0);
+					Motor_Brake();
 					StageFlag = 0;
 					StageIndex++;
 				}
@@ -199,7 +202,7 @@ int main(void) {
 				MPU6050_ReadAll(&MPU6050Data);
 				nowAngle += MPU6050Data.gz * t / 1000;
 				Motor_TurnAngle(Angle_PID_Calculate(90.0f, nowAngle));
-				if (nowAngle > 85.0f && nowAngle < 95.0f) {
+				if ((nowAngle > 85.0f && nowAngle < 95.0f)) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
 					StageFlag = 0;
@@ -234,7 +237,7 @@ int main(void) {
 				MPU6050_ReadAll(&MPU6050Data);
 				nowAngle += MPU6050Data.gz * t / 1000;
 				Motor_TurnAngle(Angle_PID_Calculate(-90.0f, nowAngle));
-				if (nowAngle > -95.0f && nowAngle < -85.0f) {
+				if ((nowAngle > -95.0f && nowAngle < -85.0f)) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
 					StageFlag = 0;
@@ -258,17 +261,21 @@ int main(void) {
 				}
 			}
 			if (command[StageIndex] == 7) {
-				if (getTimeMs(nowTime, lastUltrasonicTime) > 1000) {
-					lastUltrasonicTime = nowTime;
+				if (StageFlag == 0) {
+					distance=0.0;
 					distance = Ultrasonic_GetDistance();
-					printf("distance:%.2f",distance);
+					if (distance != 0.0f) {
+						StageFlag++;
+					}
 				}
-				if (distance < 40.0f) {
+				if (StageFlag == 1 && distance < 40.0f) {
 					Motor_SetAccuSpeed(0, 0);
 					Motor_Brake();
+					StageFlag = 0;
 					StageIndex++;
 				}
-				if (distance >= 40.0f) {
+				if (StageFlag == 1 && distance >= 40.0f) {
+					StageFlag = 0;
 					StageIndex = sizeof(command) / sizeof(int16_t) - 1;
 				}
 			}

@@ -86,8 +86,6 @@ float Ultrasonic_GetDistance(void) {
     if (distance > MAX_DISTANCE_CM) {
         return MAX_DISTANCE_CM;
     }
-
-    printf("duration_us = %lu us, distance = %.2f cm\n", duration_us, distance);
     
     return distance;
 }

@@ -1,69 +1,69 @@
 #include "Grayscale_Scan.h"
 
-float eOld = 0.0f;
-float sensor_weight[8] = {-3.0,-2.7,-2.5,-2.0,2.0,2.5,2.7,3.0};
-
+static float error;
+float sensor_weight[8] = {-3.0, -2.7, -2.5, -2.0, 2.0, 2.5, 2.7, 3.0};
 
 // 中间四个光电返回直线pid结果
-float Grayscale_Line(PID *pid,bool *sensor_values) {
+float Grayscale_Line(PID *pid, bool *sensor_values) {
 	// static float wNow, eOld, ePrev;
 	// error>0 左转
-	static float error,eOld,eNew;
-	float eRow,weightedSum;
-	int activeSensor;
+	static float eOld, eNew;
+	float eRow, weightedSum;
+	// int activeSensor;
 	Grayscale_Sensor_Read_All(sensor_values);
-	weightedSum=0;
-	activeSensor=0;
-	// 重心归一化
-	for(int i = 0;i<8;i++){
-		if (sensor_values[i]) {
-			weightedSum+=sensor_weight[i];
-			activeSensor++;
-		}
+	// weightedSum = 0;
+	// activeSensor = 0;
+	// // 重心归一化
+	// for (int i = 0; i < 8; i++) {
+	// 	if (sensor_values[i]) {
+	// 		weightedSum += sensor_weight[i];
+	// 		activeSensor++;
+	// 	}
+	// }
+	// if (activeSensor == 0) {
+	// 	eRow = eNew;
+	// } else {
+	// 	eRow = weightedSum / (float)activeSensor;
+	// }
+	// eNew = A * eNew + (1 - A) * eRow;
+	// error = pid->p * eNew + pid->d * (eNew - eOld) / pid->t;
+	// eOld = eNew;
+
+	// 计算转向参数
+	if (sensor_values[3] == 1 && sensor_values[4] == 1) {
+		error = 0;
 	}
-	if (activeSensor==0) {
-		eRow = eNew;
+	if (sensor_values[3] == 1 && sensor_values[4] == 0) {
+		error = -0.05;
 	}
-	else {
-		eRow=weightedSum/(float)activeSensor;
+	if (sensor_values[3] == 0 && sensor_values[4] == 1) {
+		error = 0.05;
 	}
-	eNew = A * eNew + (1 - A) * eRow;
-	error = pid->p*eNew+pid->d*(eNew-eOld)/pid->t;
-	// // 计算转向参数
-	// if (sensor_values[3] == 1 && sensor_values[4] == 1) {
-	// 	error = 0;
-	// }
-	// if (sensor_values[3] == 1 && sensor_values[4] == 0) {
-	// 	error = -0.05;
-	// }
-	// if (sensor_values[3] == 0 && sensor_values[4] == 1) {
-	// 	error = 0.05;
-	// }
-	// if (sensor_values[5] == 1 && sensor_values[4] == 1) {
-	// 	error = 0.1;
-	// }
-	// if (sensor_values[2] == 1 && sensor_values[3] == 1) {
-	// 	error = -0.1;
-	// }
-	// if (sensor_values[2] == 1 && sensor_values[3] == 0) {
-	// 	error = -0.2;
-	// }
-	// if (sensor_values[5] == 1 && sensor_values[4] == 0) {
-	// 	error = 0.2;
-	// }
-	// if (sensor_values[1] == 1) {
-	// 	error = -0.25;
-	// }
-	// if (sensor_values[0] == 1) {
-	// 	error = -0.3;
-	// }
-	// if (sensor_values[6] == 1) {
-	// 	error = 0.25;
-	// }
-	// if (sensor_values[7] == 1) {
-	// 	error = 0.3;
-	// }
-	eOld = eNew;
+	if (sensor_values[5] == 1 && sensor_values[4] == 1) {
+		error = 0.07;
+	}
+	if (sensor_values[2] == 1 && sensor_values[3] == 1) {
+		error = -0.07;
+	}
+	if (sensor_values[2] == 1 && sensor_values[3] == 0) {
+		error = -0.1;
+	}
+	if (sensor_values[5] == 1 && sensor_values[4] == 0) {
+		error = 0.1;
+	}
+	if (sensor_values[1] == 1) {
+		error = -0.13;
+	}
+	if (sensor_values[6] == 1) {
+		error = 0.13;
+	}
+	if (sensor_values[0] == 1) {
+		error = -0.15;
+	}
+	if (sensor_values[7] == 1) {
+		error = 0.15;
+	}
+
 	// printf("Back:%.2f\r\n",error);
 	return error;
 
@@ -84,9 +84,11 @@ bool Grayscale_Cross(bool *sensor_values, int status) {
 	Grayscale_Sensor_Read_All(sensor_values);
 	if (status == 2) {
 		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
-				sensor_values[4] > 0 && sensor_values[5] > 0);
+				sensor_values[4] > 0 && sensor_values[5] > 0 &&
+				sensor_values[7] > 0);
 	} else if (status == 1) {
-		return (sensor_values[3] > 0 && sensor_values[1] > 0 && sensor_values[2] > 0 &&
+		return (sensor_values[0] > 0 && sensor_values[3] > 0 &&
+				sensor_values[1] > 0 && sensor_values[2] > 0 &&
 				sensor_values[7] == 0);
 	} else if (status == 0) {
 		return (sensor_values[2] > 0 && sensor_values[1] > 0 &&
@@ -96,14 +98,14 @@ bool Grayscale_Cross(bool *sensor_values, int status) {
 	}
 }
 
-void Grayscale_Zero(bool *sensor_values){
-	sensor_values[0]=0;
-	sensor_values[1]=0;
-	sensor_values[2]=0;
-	sensor_values[3]=1;
-	sensor_values[4]=1;
-	sensor_values[5]=0;
-	sensor_values[6]=0;
-	sensor_values[7]=0;
-
+void Grayscale_Zero(bool *sensor_values) {
+	sensor_values[0] = 0;
+	sensor_values[1] = 0;
+	sensor_values[2] = 0;
+	sensor_values[3] = 1;
+	sensor_values[4] = 1;
+	sensor_values[5] = 0;
+	sensor_values[6] = 0;
+	sensor_values[7] = 0;
+	error = 0;
 }
