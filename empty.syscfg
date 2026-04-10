@@ -123,21 +123,24 @@ I2C1.sclPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 I2C1.sclPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric5";
 
 I2C2.basicEnableController             = true;
-I2C2.basicEnableTarget                 = true;
 I2C2.basicControllerStandardBusSpeed   = "Fast";
 I2C2.basicTargetSecAddressEnable       = true;
 I2C2.$name                             = "I2C_LED_display";
 I2C2.peripheral.$assign                = "I2C1";
-I2C2.peripheral.sdaPin.$assign         = "PA18";
+I2C2.peripheral.sdaPin.$assign         = "PB3";
 I2C2.peripheral.sclPin.$assign         = "PA17";
 I2C2.sdaPinConfig.hideOutputInversion  = scripting.forceWrite(false);
 I2C2.sdaPinConfig.onlyInternalResistor = scripting.forceWrite(false);
 I2C2.sdaPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 I2C2.sdaPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric8";
+I2C2.sdaPinConfig.enableConfig         = true;
+I2C2.sdaPinConfig.internalResistor     = "PULL_UP";
 I2C2.sclPinConfig.hideOutputInversion  = scripting.forceWrite(false);
 I2C2.sclPinConfig.onlyInternalResistor = scripting.forceWrite(false);
 I2C2.sclPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 I2C2.sclPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric9";
+I2C2.sclPinConfig.enableConfig         = true;
+I2C2.sclPinConfig.internalResistor     = "PULL_UP";
 
 PWM1.$name                              = "MotorLeft";
 PWM1.timerCount                         = 3200;

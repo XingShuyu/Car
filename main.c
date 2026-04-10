@@ -1,11 +1,11 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
-#include "Display/display.h"
 #include "GrayScale/Grayscale_Scan.h"
 #include "MCU6050/mcu6050Control.h"
 #include "MCU6050/mpu6050.h"
 #include "Motor/motor.h"
+#include "OLED/display.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
 #include "ultrasonic/ultrasonic.h"
@@ -44,6 +44,8 @@ uint32_t lastUltrasonicTime = 0;
 uint32_t lastIMUTime = 0;
 // 阶段时间戳
 uint32_t lastStageTime = 0;
+// OLED时间戳
+uint32_t lastOLEDTime = 0;
 // 阶段索引
 int StageIndex = 0;
 // 阶段标志位
@@ -70,6 +72,7 @@ volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
 void process_imu_for_horizontal_motion(float dt);
+void Display_WheelSpeeds();
 void buzzer_beep(void);
 
 int main(void) {
@@ -87,12 +90,12 @@ int main(void) {
 	USART_Init();	   // 使能UART中断（接收依赖此步骤）
 
 	// 初始化显示屏
-	// Display_Init();
+	Display_Init();
 
-	// // 可选：开机显示欢迎信息
-	// Display_ShowString(0, 0, "Car Ready");
-	// delay_ms(2000);
-	// Display_Clear();
+	// 可选：开机显示欢迎信息
+	Display_ShowString(0, 0, "Car Ready");
+	delay_ms(2000);
+	Display_Clear();
 
 	/*
 	 * 修改2（最关键）：必须同时启动两个定时器！
@@ -262,7 +265,7 @@ int main(void) {
 			}
 			if (command[StageIndex] == 7) {
 				if (StageFlag == 0) {
-					distance=0.0;
+					distance = 0.0;
 					distance = Ultrasonic_GetDistance();
 					if (distance != 0.0f) {
 						StageFlag++;
@@ -354,6 +357,12 @@ int main(void) {
 		// 	printf(
 		// 		"Yaw: %.1f deg",yaw_angle);
 		// }
+		if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
+			// 显示左右轮速度
+			Display_WheelSpeeds();
+			// 延时100ms（10Hz刷新率）
+			Display_Clear();
+		}
 	}
 }
 
@@ -466,4 +475,22 @@ void buzzer_beep(void) {
 		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16); // 打开蜂鸣器
 		delay_ms(100);
 	}
+}
+// 显示左右轮速度
+void Display_WheelSpeeds() {
+	char left_str[16], right_str[16];
+
+	// 格式化左轮速度字符串
+	sprintf(left_str, "L:%.2f m/s", motorLeftSpeed);
+	// 格式化右轮速度字符串
+	sprintf(right_str, "R:%.2f m/s", motorRightSpeed);
+
+	// 在OLED上显示（左轮在上，右轮在下）
+	Display_ShowString(0, 0, left_str);
+	Display_ShowString(2, 0, right_str);
+
+	// 可选：显示速度差
+	float speed_diff = fabs(motorLeftSpeed - motorRightSpeed);
+	sprintf(left_str, "Diff:%.2f m/s", speed_diff);
+	Display_ShowString(4, 0, left_str);
 }

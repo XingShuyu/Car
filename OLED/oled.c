@@ -1,450 +1,106 @@
-#include "oledfont.h"
+/**
+ * @file oled.c
+ * @brief OLED å•†å®¶é©±åŠ¨å®ç°ï¼ˆé€‚é…ç‰ˆï¼‰
+ * @note ä¾èµ– display.c æä¾›çš„ I2C é©¾é©¶å’Œæ˜¾å­˜ç¼“å†²åŒº
+ */
+
 #include "oled.h"
+#include <stdlib.h> // ç”¨äº abs
 
-u8 OLED_GRAM[144][4]; // OLEDÏÔ´æ»º³åÇø OLED display buffer
+// å¦‚æœ display.c ä¸­å®šä¹‰äº† framebufferï¼Œè¿™é‡Œå°±ä¸è¦é‡å¤å®šä¹‰ï¼Œä½¿ç”¨ extern
+// ä½†å¦‚æœå•†å®¶ä»£ç å¿…é¡»è‡ªå·±ç®¡ç†æ˜¾å­˜ï¼Œåˆ™éœ€è¦åœ¨è¿™é‡Œå®šä¹‰ï¼Œå¹¶åœ¨æœ€å memcpy åˆ° display çš„æ˜¾å­˜
+// è¿™é‡Œé‡‡ç”¨æœ€ç®€å•çš„æ–¹æ¡ˆï¼šç›´æ¥å¼•ç”¨ display.c çš„æ˜¾å­˜
 
-/**
- * @brief ·´ÏÔÉèÖÃ Ä£Ê½Ñ¡Ôñ 0Õı³£ÏÔÊ¾ 1·´É«ÏÔÊ¾
- * @param i Display mode selection 0:Normal 1:Inverse
- */
-void OLED_ColorTurn(u8 i)
-{
-    if(i == 0) {
-        OLED_WR_Byte(0xA6, OLED_CMD); // Õı³£ÏÔÊ¾ Normal display
-    } 
-    if(i == 1) {
-        OLED_WR_Byte(0xA7, OLED_CMD); // ·´É«ÏÔÊ¾ Inverse display
-    }
-}
+// å¦‚æœç¼–è¯‘æŠ¥é”™ "undefined reference to 'framebuffer'"ï¼Œè¯·å–æ¶ˆä¸‹é¢è¿™è¡Œçš„æ³¨é‡Š
+// uint8_t framebuffer[OLED_WIDTH * OLED_HEIGHT / 8]; 
 
 /**
- * @brief ÆÁÄ»Ğı×ªÉèÖÃ Ä£Ê½Ñ¡Ôñ 0Õı³£·½Ïò 1Ğı×ª180¶È
- * @param i Rotation mode selection 0:Normal 1:Rotated 180 degrees
+ * @brief ç”»ç‚¹ï¼ˆæ“ä½œæ˜¾å­˜ï¼‰
+ * @param x æ¨ªåæ ‡
+ * @param y çºµåæ ‡
  */
-void OLED_DisplayTurn(u8 i)
+void OLED_DrawPoint(uint8_t x, uint8_t y) 
 {
-    if(i == 0) {
-        OLED_WR_Byte(0xC8, OLED_CMD); // Õı³£·½Ïò Normal orientation
-        OLED_WR_Byte(0xA1, OLED_CMD);
-    }
-    if(i == 1) {
-        OLED_WR_Byte(0xC0, OLED_CMD); // ·´×ª·½Ïò Rotated orientation
-        OLED_WR_Byte(0xA0, OLED_CMD);
-    }
-}
-
-/**
- * @brief I2CÑÓÊ±º¯Êı Ô¼4usÑÓÊ±
- * @note Approximately 4us delay for I2C timing
- */
-void IIC_delay(void)
-{
-    delay_us(3); 
-}
-
-/**
- * @brief I2CÆğÊ¼ĞÅºÅ I2C start condition
- */
-void I2C_Start(void)
-{
-    OLED_SDA_Set();
-    OLED_SCL_Set();
-    IIC_delay();
-    OLED_SDA_Clr();
-    IIC_delay();
-    OLED_SCL_Clr();
-    IIC_delay();
-}
-
-/**
- * @brief I2CÍ£Ö¹ĞÅºÅ I2C stop condition
- */
-void I2C_Stop(void)
-{
-    OLED_SDA_Clr();
-    OLED_SCL_Set();
-    IIC_delay();
-    OLED_SDA_Set();
-}
-
-/**
- * @brief µÈ´ıÓ¦´ğĞÅºÅ ¼ì²âÊı¾İĞÅºÅµçÆ½
- * @note Wait for ACK signal by checking data line level
- */
-void I2C_WaitAck(void)
-{
-    OLED_SDA_Set();
-    IIC_delay();
-    OLED_SCL_Set();
-    IIC_delay();
-    OLED_SCL_Clr();
-    IIC_delay();
-}
-
-/**
- * @brief ·¢ËÍÒ»¸ö×Ö½Ú ½«Êı¾İ´Ó×î¸ßÎ»ÒÀ´ÎĞ´Èë
- * @param dat Òª·¢ËÍµÄÊı¾İ Data to send
- */
-void Send_Byte(u8 dat)
-{
-    u8 i;
-    for(i = 0; i < 8; i++) {
-        if(dat & 0x80) { // ·¢ËÍ×î¸ßÎ» Send MSB first
-            OLED_SDA_Set();
-        } else {
-            OLED_SDA_Clr();
-        }
-        IIC_delay();
-        OLED_SCL_Set();
-        IIC_delay();
-        OLED_SCL_Clr(); // Ê±ÖÓÏÂ½µÑØËø´æÊı¾İ Latch data on falling edge
-        dat <<= 1;
-    }
-}
-
-/**
- * @brief ÏòOLEDĞ´ÈëÒ»¸ö×Ö½Ú Êı¾İ»òÃüÁî
- * @param dat ÒªĞ´ÈëµÄÊı¾İ Data to write
- * @param mode Ğ´ÈëÄ£Ê½ 0ÃüÁî 1Êı¾İ
- *        Write mode 0:Command 1:Data
- */
-void OLED_WR_Byte(u8 dat, u8 mode)
-{
-    I2C_Start();
-    Send_Byte(0x78); // OLEDÉè±¸µØÖ· OLED device address
-    I2C_WaitAck();
-    if(mode) {
-        Send_Byte(0x40); // Êı¾İÄ£Ê½ Data mode
-    } else {
-        Send_Byte(0x00); // ÃüÁîÄ£Ê½ Command mode
-    }
-    I2C_WaitAck();
-    Send_Byte(dat);
-    I2C_WaitAck();
-    I2C_Stop();
-}
-
-/**
- * @brief ¿ªÆôOLEDÏÔÊ¾ Turn on OLED display
- */
-void OLED_DisPlay_On(void)
-{
-    OLED_WR_Byte(0x8D, OLED_CMD); // µçºÉ±ÃÊ¹ÄÜ Enable charge pump
-    OLED_WR_Byte(0x14, OLED_CMD); // ¿ªÆôµçºÉ±Ã Charge pump on
-    OLED_WR_Byte(0xAF, OLED_CMD); // µãÁÁÆÁÄ» Display on
-}
-
-/**
- * @brief ¹Ø±ÕOLEDÏÔÊ¾ Turn off OLED display
- */
-void OLED_DisPlay_Off(void)
-{
-    OLED_WR_Byte(0x8D, OLED_CMD); // µçºÉ±ÃÊ¹ÄÜ Enable charge pump
-    OLED_WR_Byte(0x10, OLED_CMD); // ¹Ø±ÕµçºÉ±Ã Charge pump off
-    OLED_WR_Byte(0xAE, OLED_CMD); // ¹Ø±ÕÆÁÄ» Display off
-}
-
-/**
- * @brief ¸üĞÂÏÔ´æµ½OLED Ë¢ĞÂÏÔÊ¾
- * @note Refresh display from GRAM buffer
- */
-void OLED_Refresh(void)
-{
-    u8 i, n;
-    for(i = 0; i < 4; i++) { // 4Ò³(32ĞĞ) 4 pages (32 rows)
-        OLED_WR_Byte(0xB0 + i, OLED_CMD); // ÉèÖÃÒ³µØÖ· Set page address
-        OLED_WR_Byte(0x00, OLED_CMD);    // ÉèÖÃÁĞµÍµØÖ· Set column low address
-        OLED_WR_Byte(0x10, OLED_CMD);    // ÉèÖÃÁĞ¸ßµØÖ· Set column high address
-        
-        I2C_Start();
-        Send_Byte(0x78);     // OLEDµØÖ· OLED address
-        I2C_WaitAck();
-        Send_Byte(0x40);     // Êı¾İÄ£Ê½ Data mode
-        I2C_WaitAck();
-        
-        for(n = 0; n < 128; n++) { // 128ÁĞ 128 columns
-            Send_Byte(OLED_GRAM[n][i]); // ·¢ËÍÏÔ´æÊı¾İ Send GRAM data
-            I2C_WaitAck();
-        }
-        I2C_Stop();
-    }
-}
-
-/**
- * @brief Çå¿ÕÏÔ´æ²¢Ë¢ĞÂÏÔÊ¾ Clear GRAM and refresh display
- */
-void OLED_Clear(void)
-{
-    u8 i, n;
-    for(i = 0; i < 4; i++) {
-        for(n = 0; n < 128; n++) {
-            OLED_GRAM[n][i] = 0; // Çå³ıËùÓĞÊı¾İ Clear all data
-        }
-    }
-    OLED_Refresh(); // ¸üĞÂÏÔÊ¾ Refresh display
-}
-
-/**
- * @brief »­µãº¯Êı ÔÚÖ¸¶¨×ø±ê»æÖÆµã
- * @param x X×ø±ê(0~127) X coordinate
- * @param y Y×ø±ê(0~63) Y coordinate
- * @param t Ä£Ê½ 1»­µã 0Çåµã
- *        Mode 1:Draw point 0:Clear point
- */
-void OLED_DrawPoint(u8 x, u8 y, u8 t)
-{
-    u8 i, m, n;
-    i = y / 8;      // ¼ÆËãÒ³ºÅ Calculate page index
-    m = y % 8;      // ¼ÆËãÎ»Æ«ÒÆ Calculate bit offset
-    n = 1 << m;     // Î»ÑÚÂë Bit mask
+    if (x >= OLED_WIDTH || y >= OLED_HEIGHT) return;
     
-    if(t) {
-        OLED_GRAM[x][i] |= n;  // ÉèÖÃµã Set point
-    } else {
-        OLED_GRAM[x][i] &= ~n; // Çå³ıµã Clear point
+    // è®¡ç®—æ˜¾å­˜åœ°å€ (é¡µå¯»å€æ¨¡å¼)
+    // OLED_PAGE_SIZE = OLED_WIDTH (é€šå¸¸ä¸º 128)
+    uint16_t index = x + (y / 8) * OLED_WIDTH; 
+    
+    // è®¾ç½®ä½
+    framebuffer[index] |= (1 << (y % 8)); 
+}
+
+/**
+ * @brief æ¸…é™¤ç‚¹
+ * @param x æ¨ªåæ ‡
+ * @param y çºµåæ ‡
+ */
+void OLED_ClearPoint(uint8_t x, uint8_t y) 
+{
+    if (x >= OLED_WIDTH || y >= OLED_HEIGHT) return;
+    
+    uint16_t index = x + (y / 8) * OLED_WIDTH; 
+    framebuffer[index] &= ~(1 << (y % 8)); 
+}
+
+/**
+ * @brief ç”»çº¿ (Bresenham ç®—æ³•)
+ */
+void OLED_DrawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2)
+{
+    int dx = abs(x2 - x1), sx = x1 < x2 ? 1 : -1;
+    int dy = -abs(y2 - y1), sy = y1 < y2 ? 1 : -1; 
+    int err = dx + dy, e2;
+
+    for(;;){
+        OLED_DrawPoint(x1, y1);
+        if (x1 == x2 && y1 == y2) break;
+        e2 = 2 * err;
+        if (e2 >= dy) { err += dy; x1 += sx; }
+        if (e2 <= dx) { err += dx; y1 += sy; }
     }
 }
 
 /**
- * @brief »­Ïßº¯Êı ÔÚÁ½µãÖ®¼ä»æÖÆÖ±Ïß
- * @param x1,y1 Æğµã×ø±ê Start point coordinates
- * @param x2,y2 ÖÕµã×ø±ê End point coordinates
- * @param mode Ä£Ê½ 1»­Ïß 0Çå³ı
- *        Mode 1:Draw line 0:Clear line
+ * @brief ç”»åœ† (Midpoint Circle Algorithm)
  */
-void OLED_DrawLine(u8 x1, u8 y1, u8 x2, u8 y2, u8 mode)
+void OLED_DrawCircle(uint8_t x0, uint8_t y0, uint8_t r)
 {
-    u16 t; 
-    int xerr = 0, yerr = 0, delta_x, delta_y, distance;
-    int incx, incy, uRow, uCol;
-    
-    delta_x = x2 - x1; // ¼ÆËã×ø±êÔöÁ¿ Calculate coordinate increment
-    delta_y = y2 - y1;
-    uRow = x1; // »­ÏßÆğµã×ø±ê Line start coordinate
-    uCol = y1;
-    
-    // È·¶¨X·½Ïò²½½ø Determine X direction step
-    if(delta_x > 0) incx = 1; 
-    else if (delta_x == 0) incx = 0; // ´¹Ö±Ïß Vertical line
-    else {incx = -1; delta_x = -delta_x;}
-    
-    // È·¶¨Y·½Ïò²½½ø Determine Y direction step
-    if(delta_y > 0) incy = 1;
-    else if (delta_y == 0) incy = 0; // Ë®Æ½Ïß Horizontal line
-    else {incy = -1; delta_y = -delta_y;}
-    
-    // È·¶¨»ù±¾ÔöÁ¿Öá Determine basic increment axis
-    if(delta_x > delta_y) distance = delta_x; 
-    else distance = delta_y;
-    
-    // BresenhamËã·¨»æÖÆÖ±Ïß Bresenham algorithm for line drawing
-    for(t = 0; t < distance + 1; t++)
+    int f = 1 - r;
+    int ddF_x = 1;
+    int ddF_y = -2 * r;
+    int x = 0;
+    int y = r;
+
+    OLED_DrawPoint(x0, y0 + r);
+    OLED_DrawPoint(x0, y0 - r);
+    OLED_DrawPoint(x0 + r, y0);
+    OLED_DrawPoint(x0 - r, y0);
+
+    while(x < y)
     {
-        OLED_DrawPoint(uRow, uCol, mode); // »æÖÆµã Draw point
-        xerr += delta_x;
-        yerr += delta_y;
-        if(xerr > distance)
+        if(f >= 0)
         {
-            xerr -= distance;
-            uRow += incx;
-        }
-        if(yerr > distance)
-        {
-            yerr -= distance;
-            uCol += incy;
-        }
-    }
-}
-
-
-
-/**
- * @brief ÏÔÊ¾×Ö·ûº¯Êı ÔÚÖ¸¶¨Î»ÖÃÏÔÊ¾µ¥¸ö×Ö·û
- * @param x,y ÆğÊ¼×ø±ê Start coordinates
- * @param chr ÒªÏÔÊ¾µÄ×Ö·û Character to display
- * @param size1 ×ÖÌå´óĞ¡ Font size
- * @param mode Ä£Ê½ 0·´É«ÏÔÊ¾ 1Õı³£ÏÔÊ¾
- *        Mode 0:Inverse display 1:Normal display
- */
-void OLED_ShowChar(u8 x, u8 y, u8 chr, u8 size1, u8 mode)
-{
-    u8 i, m, temp, size2, chr1;
-    u8 x0 = x, y0 = y;
-    
-    // ¼ÆËã×ÖÌåÊı¾İ´óĞ¡ Calculate font data size
-    if(size1 == 8) size2 = 6;
-    else size2 = (size1 / 8 + ((size1 % 8) ? 1 : 0)) * (size1 / 2);
-    
-    chr1 = chr - ' '; // ¼ÆËã×Ö¿âÆ«ÒÆ Calculate font offset
-    
-    for(i = 0; i < size2; i++)
-    {
-        // »ñÈ¡×ÖÌåÊı¾İ Get font data
-        if(size1 == 8) temp = asc2_0806[chr1][i];
-        else if(size1 == 12) temp = asc2_1206[chr1][i];
-        else if(size1 == 16) temp = asc2_1608[chr1][i];
-        else if(size1 == 24) temp = asc2_2412[chr1][i];
-        else return;
-        
-        // ÖğÎ»»æÖÆ Draw bit by bit
-        for(m = 0; m < 8; m++)
-        {
-            if(temp & 0x01) OLED_DrawPoint(x, y, mode);
-            else OLED_DrawPoint(x, y, !mode);
-            temp >>= 1;
-            y++;
+            y--; 
+            ddF_y += 2; 
+            f += ddF_y;
         }
         x++;
-        // »»ĞĞ´¦Àí Line break handling
-        if((size1 != 8) && ((x - x0) == size1 / 2))
-        {
-            x = x0;
-            y0 = y0 + 8;
-        }
-        y = y0;
+        ddF_x += 2; 
+        f += ddF_x;   
+
+        OLED_DrawPoint(x0 + x, y0 + y);
+        OLED_DrawPoint(x0 - x, y0 + y);
+        OLED_DrawPoint(x0 + x, y0 - y);
+        OLED_DrawPoint(x0 - x, y0 - y);
+
+        OLED_DrawPoint(x0 + y, y0 + x);
+        OLED_DrawPoint(x0 - y, y0 + x);
+        OLED_DrawPoint(x0 + y, y0 - x);
+        OLED_DrawPoint(x0 - y, y0 - x);
     }
 }
 
-/**
- * @brief ÏÔÊ¾×Ö·û´®º¯Êı ÔÚÖ¸¶¨Î»ÖÃÏÔÊ¾×Ö·û´®
- * @param x,y ÆğÊ¼×ø±ê Start coordinates
- * @param chr ×Ö·û´®Ö¸Õë String pointer
- * @param size1 ×ÖÌå´óĞ¡ Font size
- * @param mode Ä£Ê½ 0·´É«ÏÔÊ¾ 1Õı³£ÏÔÊ¾
- *        Mode 0:Inverse display 1:Normal display
- */
-void OLED_ShowString(u8 x, u8 y, u8 *chr, u8 size1, u8 mode)
-{
-    // ±éÀú×Ö·û´®Ö±µ½½áÊø·û Traverse string until null terminator
-    while((*chr >= ' ') && (*chr <= '~'))
-    {
-        OLED_ShowChar(x, y, *chr, size1, mode);
-        // ¼ÆËãÏÂÒ»¸ö×Ö·ûÎ»ÖÃ Calculate next character position
-        if(size1 == 8) x += 6;
-        else x += size1 / 2;
-        chr++;
-    }
-}
-
-/**
- * @brief Ãİº¯Êı¼ÆËã ¼ÆËãmµÄn´Î·½
- * @param m µ×Êı Base
- * @param n Ö¸Êı Exponent
- * @return ¼ÆËã½á¹û Calculation result
- */
-u32 OLED_Pow(u8 m, u8 n)
-{
-    u32 result = 1;
-    while(n--)
-    {
-        result *= m;
-    }
-    return result;
-}
-
-/**
- * @brief ÏÔÊ¾Êı×Öº¯Êı ÔÚÖ¸¶¨Î»ÖÃÏÔÊ¾Êı×Ö
- * @param x,y ÆğÊ¼×ø±ê Start coordinates
- * @param num ÒªÏÔÊ¾µÄÊı×Ö Number to display
- * @param len Êı×ÖÎ»Êı Number length
- * @param size1 ×ÖÌå´óĞ¡ Font size
- * @param mode Ä£Ê½ 0·´É«ÏÔÊ¾ 1Õı³£ÏÔÊ¾
- *        Mode 0:Inverse display 1:Normal display
- */
-void OLED_ShowNum(u8 x, u8 y, u32 num, u8 len, u8 size1, u8 mode)
-{
-    u8 t, temp, m = 0;
-    if(size1 == 8) m = 2; // Ğ¡×ÖÌå¶îÍâ¼ä¾à Extra spacing for small font
-    
-    for(t = 0; t < len; t++)
-    {
-        temp = (num / OLED_Pow(10, len - t - 1)) % 10; // ÌáÈ¡Ã¿Î»Êı×Ö Extract each digit
-        if(temp == 0)
-        {
-            OLED_ShowChar(x + (size1 / 2 + m) * t, y, '0', size1, mode);
-        }
-        else 
-        {
-            OLED_ShowChar(x + (size1 / 2 + m) * t, y, temp + '0', size1, mode);
-        }
-    }
-}
-
-
-
-/**
- * @brief OLED³õÊ¼»¯º¯Êı ÅäÖÃ¿ØÖÆÆ÷²¢ÇåÆÁ
- * @note Initialize OLED controller and clear screen
- */
-void OLED_Init(void)
-{
-    delay_ms(200); // ÑÓÊ±µÈ´ıOLEDÉÏµçÎÈ¶¨ Delay for OLED power stabilization
-    
-    // OLED¿ØÖÆÆ÷³õÊ¼»¯ÃüÁîĞòÁĞ OLED controller initialization sequence
-    OLED_WR_Byte(0xAE, OLED_CMD);  // ¹Ø±ÕÏÔÊ¾±ÜÃâÉÁË¸ Display off to avoid flicker
-    OLED_WR_Byte(0x00, OLED_CMD);  // ÉèÖÃÁĞµØÖ·µÍ4Î» Set lower column address
-    OLED_WR_Byte(0x10, OLED_CMD);  // ÉèÖÃÁĞµØÖ·¸ß4Î» Set higher column address
-    OLED_WR_Byte(0x00, OLED_CMD);  // ÉèÖÃÏÔÊ¾ÆğÊ¼ĞĞ Set display start line
-    OLED_WR_Byte(0xB0, OLED_CMD);  // ÉèÖÃÒ³µØÖ· Set page address
-    
-    OLED_WR_Byte(0x81, OLED_CMD);  // ¶Ô±È¶È¿ØÖÆ Contrast control
-    OLED_WR_Byte(0xFF, OLED_CMD);  // ¶Ô±È¶ÈÖµ128 Contrast value 128
-    
-    OLED_WR_Byte(0xA1, OLED_CMD);  // ¶ÎÖØÓ³ÉäË®Æ½·­×ª Segment remap horizontal flip
-    OLED_WR_Byte(0xA6, OLED_CMD);  // Õı³£ÏÔÊ¾·Ç·´É« Normal display not inverse
-    
-    OLED_WR_Byte(0xA8, OLED_CMD);  // ÉèÖÃ¶àÂ·¸´ÓÃ±ÈÂÊ Set multiplex ratio
-    OLED_WR_Byte(0x1F, OLED_CMD);  // ÉèÖÃÎª1/32Õ¼¿Õ±È Set duty 1/32
-    
-    OLED_WR_Byte(0xC8, OLED_CMD);  // COMÉ¨Ãè·½Ïò´¹Ö±·­×ª COM scan direction vertical flip
-    
-    OLED_WR_Byte(0xD3, OLED_CMD);  // ÉèÖÃÏÔÊ¾Æ«ÒÆ Set display offset
-    OLED_WR_Byte(0x00, OLED_CMD);  // ÎŞÆ«ÒÆ No offset
-    
-    OLED_WR_Byte(0xD5, OLED_CMD);  // ÉèÖÃÏÔÊ¾Ê±ÖÓ·ÖÆµ Set oscillator division
-    OLED_WR_Byte(0x80, OLED_CMD);  // Ä¬ÈÏÖµ Default value
-    
-    OLED_WR_Byte(0xD9, OLED_CMD);  // ÉèÖÃÔ¤³äµçÖÜÆÚ Set pre-charge period
-    OLED_WR_Byte(0x1F, OLED_CMD);  // ÍÆ¼öÖµ Recommended value
-    
-    OLED_WR_Byte(0xDA, OLED_CMD);  // ÉèÖÃCOMÒı½ÅÅäÖÃ Set COM pins configuration
-    OLED_WR_Byte(0x00, OLED_CMD);  // Ä¬ÈÏÅäÖÃ Default configuration
-    
-    OLED_WR_Byte(0xDB, OLED_CMD);  // ÉèÖÃVCOMHµçÑ¹ Set VCOMH deselect level
-    OLED_WR_Byte(0x40, OLED_CMD);  // Ô¼0.77xVCC Approx 0.77xVCC
-    
-    OLED_WR_Byte(0x8D, OLED_CMD);  // µçºÉ±ÃÉèÖÃ Charge pump setting
-    OLED_WR_Byte(0x14, OLED_CMD);  // ÆôÓÃµçºÉ±Ã Enable charge pump
-    
-
-    OLED_WR_Byte(0xAF, OLED_CMD);  // ¿ªÆôÏÔÊ¾ Display ON
-    
-    // ÏÔÊ¾»¶Ó­ĞÅÏ¢ Display welcome message
-    OLED_ShowString(10, 40, (uint8_t *)"Hello,Yahboom!", 16, 1);
-    OLED_Refresh();  // ¸üĞÂÏÔÊ¾ Refresh display
-		delay_ms(200);
-		OLED_Clear();  // Çå¿ÕÏÔ´æ Clear display buffer
-    
-}
-
-/**
- * @brief Ğ´ÈëÒ»ĞĞ×Ö·û ÔÚÖ¸¶¨ĞĞÏÔÊ¾×Ö·û´®
- * @param data ×Ö·û´®Ö¸Õë String pointer
- * @param line ĞĞºÅ(1-4) Line number (1-4)
- * @param clear ÊÇ·ñÇåÆÁ Whether to clear screen
- * @param refresh ÊÇ·ñÁ¢¼´Ë¢ĞÂ Whether to refresh immediately
- */
-void OLED_Draw_Line(char *data, uint8_t line, bool clear, bool refresh)
-{
-    if (line > 0 && line <= 4) {
-        if(clear == true) {
-            OLED_Clear();
-        }
-        
-        OLED_ShowString(0, (line-1)*8, (uint8_t *)data, 8, 1);
-        
-        if(refresh == true) {
-            OLED_Refresh();
-        }
-    }
-}
+// è¿™é‡Œå¯ä»¥æ·»åŠ å•†å®¶ç‰¹æœ‰çš„å…¶ä»–å‡½æ•°ï¼ˆå¦‚æ˜¾ç¤ºå›¾ç‰‡ï¼‰
+// void OLED_DrawBMP(...) { ... }
