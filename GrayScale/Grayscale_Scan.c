@@ -103,21 +103,14 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 	} else if (sensor_values[2] == 1 && sensor_values[3] == 0 &&
 			   sensor_values[4] == 0 && sensor_values[5] == 0) {
 		error = -3;
-	}
-
-	//    else if(sensor_values[2] == 1 && sensor_values[3] == 1&&
-	//    sensor_values[4] ==0 && sensor_values[5]==0)
-	//    {
-	//        error = 2;
-	//    }
-	//    else if(sensor_values[2] == 0 && sensor_values[3] == 0&&
-	//    sensor_values[4] ==1 && sensor_values[5]==1 )
-	//    {
-	//        error = -2;
-	//    }
-
-	else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-			 sensor_values[4] == 1 && sensor_values[5] == 0) {
+	} else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
+			   sensor_values[4] == 1 && sensor_values[5] == 1) {
+		error = 2;
+	} else if (sensor_values[2] == 1 && sensor_values[3] == 1 &&
+			   sensor_values[4] == 0 && sensor_values[5] == 0) {
+		error = -2;
+	} else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
+			   sensor_values[4] == 1 && sensor_values[5] == 0) {
 		error = 1;
 	} else if (sensor_values[2] == 0 && sensor_values[3] == 1 &&
 			   sensor_values[4] == 0 && sensor_values[5] == 0) {
@@ -128,8 +121,7 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 
 	pid_output_IRR = (int)(Track_PID(error));
 
-	printf("Back:%.2f\r\n",pid_output_IRR/800.0);
-	return pid_output_IRR /800.0;
+	return pid_output_IRR;
 
 	// // wNow = pid->p * eNew + pid->d * (eNew - eOld);
 	// wNow += PID_calculate(pid, eRow, eOld, ePrev);
@@ -148,11 +140,10 @@ bool Grayscale_Cross(bool *sensor_values, int status) {
 	Grayscale_Sensor_Read_All(sensor_values);
 	if (status == 2) {
 		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
-				sensor_values[4] > 0 && sensor_values[5] > 0 &&
-				sensor_values[7] > 0);
+				sensor_values[7] > 0 && sensor_values[5] > 0);
 	} else if (status == 1) {
-		return (sensor_values[0] > 0 && sensor_values[3] > 0 &&
-				sensor_values[1] > 0 && sensor_values[2] > 0 &&
+		return (sensor_values[0] > 0 &&
+				sensor_values[1] > 0 && sensor_values[2] > 0&&
 				sensor_values[7] == 0);
 	} else if (status == 0) {
 		return (sensor_values[2] > 0 && sensor_values[1] > 0 &&

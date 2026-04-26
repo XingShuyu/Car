@@ -16,6 +16,15 @@ static uint16_t nm_abs_i16(int16_t v)
     return (v < 0) ? (uint16_t)(-v) : (uint16_t)v;
 }
 
+static int16_t nm_from_u16_with_limit(uint16_t pwm_u16)
+{
+    uint16_t limit = (uint16_t)NEWMOTOR_PWM_MAX_TICKS;
+    if (pwm_u16 > limit) {
+        pwm_u16 = limit;
+    }
+    return (int16_t)pwm_u16;
+}
+
 int16_t NewMotor_ClampSignedPwmTicks(int16_t ticks)
 {
     if (ticks > NEWMOTOR_PWM_MAX_TICKS) {
@@ -129,7 +138,7 @@ void NewMotor_SetWheelPwmTicks(int16_t left_ticks, int16_t right_ticks)
 
 void NewMotor_Stop(NewMotor_StopMode mode)
 {
-    uint16_t stop_ticks = (mode == NEWMOTOR_STOP_BRAKE) ? NEWMOTOR_PWM_MAX_TICKS : 0;
+    uint16_t stop_ticks = (mode == NEWMOTOR_STOP_BRAKE) ? NEWMOTOR_PWM_PERIOD_TICKS : 0;
 
 #if NEWMOTOR_BACKEND_TIMA4CH
     DL_TimerA_setCaptureCompareValue(motor_PWM_INST, stop_ticks, GPIO_motor_PWM_C0_IDX);
@@ -189,7 +198,8 @@ void Motor_Stop(uint8_t brake)
 
 void L1_control(uint16_t motor_speed, uint8_t dir)
 {
-    int16_t signed_pwm = dir ? -(int16_t)motor_speed : (int16_t)motor_speed;
+    int16_t base_pwm = nm_from_u16_with_limit(motor_speed);
+    int16_t signed_pwm = dir ? -base_pwm : base_pwm;
     int16_t pwm = NewMotor_ClampSignedPwmTicks(signed_pwm);
 
     if (pwm == 0) {
@@ -201,7 +211,8 @@ void L1_control(uint16_t motor_speed, uint8_t dir)
 
 void R1_control(uint16_t motor_speed, uint8_t dir)
 {
-    int16_t signed_pwm = dir ? -(int16_t)motor_speed : (int16_t)motor_speed;
+    int16_t base_pwm = nm_from_u16_with_limit(motor_speed);
+    int16_t signed_pwm = dir ? -base_pwm : base_pwm;
     int16_t pwm = NewMotor_ClampSignedPwmTicks(signed_pwm);
 
     if (pwm == 0) {

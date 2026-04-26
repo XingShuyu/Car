@@ -9,15 +9,15 @@ enum Stage {
     StageLeftRound = 5,
 	StageCross = 6,
 	Stageultrasonic=7,
-	StageBack=8,
+	StageNull=8,
 	StageFinsih=9,
 	StageBizz=10
 };
 
 int16_t command[] = {
-    // 1,1,1,1,2,1,3,6,10,1,1,1,4,1,5,4,1,5,2,1,3,6,5,7,3,7,3,7,9
-	2,9
-	// 1
+    // 1,1,2,1,3,6,10,1,4,1,5,4,1,5,2,1,3,6,1,5,7,3,7,3,7,9
+	// 2,9
+	10,1,2,1,3,2,1,3
 };
 
 #endif
