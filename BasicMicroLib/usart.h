@@ -6,6 +6,6 @@
 
 void USART_Init(void);
 
-void USART_SendData(unsigned char data);
+void USART_SendData(UART_Regs *uart, unsigned char data);
 
 #endif

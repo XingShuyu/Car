@@ -160,4 +160,11 @@ void MPU6050_SetGyroZero(float x, float y, float z);
  */
 bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out);
 
+/**
+ * @brief 设置低通滤波 + 死区去底噪参数
+ * @param alpha    低通系数 (0.0~1.0), 越小越平滑但响应越慢 (建议 0.05~0.2)
+ * @param deadzone 死区阈值, |值| < 阈值时归零 (建议 0.1~1.0, 单位: °/s / g)
+ */
+void MPU6050_SetFilterParam(float alpha, float deadzone);
+
 #endif /* MPU6050_H_ */

@@ -1,6 +1,7 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Emm/Emm.h"
 #include "GrayScale/Grayscale_Scan.h"
 #include "MCU6050/mpu6050.h"
 #include "Motor/newmotor_speed_ctrl.h"
@@ -57,8 +58,7 @@ volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
 
 // MPU相关
-MPU6050_Data_t MPU6050Data;
-float nowAngle = 0;
+MPU6050_RawData_t MPU6050Data;
 
 // 灰度循迹地址
 bool grayscale[8];
@@ -77,8 +77,6 @@ int main(void) {
 	//--------------------------------------
 	//                 初始化
 	//--------------------------------------
-	for (volatile uint32_t i = 0; i < 3200000; i++)
-		;
 
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
@@ -109,6 +107,11 @@ int main(void) {
 
 	// 打印启动信息
 	printf("MSPM0G3507 D157B Motor Test Start!\r\n");
+	// 使能云台
+	Emm_Init(1);
+	delay_ms(10);
+	Emm_Init(2);
+	delay_ms(10);
 
 	// 获取启动时间tick
 	startTime = getNowMs();
@@ -152,14 +155,38 @@ int main(void) {
 			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
 												   rightCountSnapshot);
 		}
-		// if (getTimeMs(nowTime, lastIMUTime) > 20) {
-		// 	int32_t t = getTimeMs(nowTime, lastIMUTime);
-		// 	anglePid.t = t;
-		// 	lastIMUTime = nowTime;
-		// 	MPU6050_ReadGyroRaw(&MPU6050Data);
-		// 	nowAngle += MPU6050Data.z * t;
-		// 	Motor_TurnAngle(Angle_PID_Calculate(&anglePid, 90.0f, nowAngle));
-		// }
+		if (getTimeMs(nowTime, lastIMUTime) > 10) {
+			float nowAngle = 0;
+			int32_t t = getTimeMs(nowTime, lastIMUTime);
+			lastIMUTime = nowTime;
+			MPU6050_ReadGyroRaw(&MPU6050Data);
+			nowAngle = MPU6050Data.z * t;
+			LocControl locControl;
+			if (MPU6050Data.z > 0) {
+				locControl.accu = 0;
+				locControl.angle = nowAngle;
+				locControl.dirction = 0;
+				locControl.mode = 0;
+				locControl.speed = MPU6050Data.z;
+				Emm_Stop(2);
+				Emm_Loc_Control(2, &locControl);
+			} else if(MPU6050Data.z < 0){
+				locControl.accu = 0;
+				locControl.angle = -nowAngle;
+				locControl.dirction = 1;
+				locControl.mode = 0;
+				locControl.speed = -MPU6050Data.z;
+				Emm_Stop(2);
+				Emm_Loc_Control(2, &locControl);
+			}
+			else {
+				Emm_Stop(2);
+			}
+			char msg[16];
+			sprintf(msg,"%d,%f",MPU6050Data.y,nowAngle);
+			Display_ShowString(0, 0, msg);
+			Display_Clear();
+		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			if (command[StageIndex] == 1) {
@@ -208,9 +235,8 @@ int main(void) {
 				if (StageFlag == 0) {
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(
-					&motor, (RoundSpeed),
-					-(RoundSpeed));
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (RoundSpeed),
+													 -(RoundSpeed));
 				if (_read_channel_stable(3)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
@@ -241,9 +267,8 @@ int main(void) {
 				if (StageFlag == 0) {
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(
-					&motor, (RoundSpeed),
-					-(RoundSpeed));
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (RoundSpeed),
+													 -(RoundSpeed));
 				if (_read_channel_stable(4)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
@@ -356,10 +381,9 @@ int main(void) {
 		// 		"Yaw: %.1f deg",yaw_angle);
 		// }
 		if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
-			// 显示左右轮速度
-			Display_WheelSpeeds();
-			// 延时100ms（10Hz刷新率）
-			Display_Clear();
+			// // 显示左右轮速度
+			// Display_WheelSpeeds();
+			// Display_Clear();
 		}
 	}
 }

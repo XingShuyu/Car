@@ -6,16 +6,16 @@
 
 
 
-static void USART_SendByte_Blocking(uint8_t data)
+static void USART_SendByte_Blocking(UART_Regs *uart, uint8_t data)
 {
 	uint32_t timeout = 1000000U;
-	while ((DL_UART_isBusy(UART_0_INST) == true) && (timeout > 0U)) {
+	while ((DL_UART_isBusy(uart) == true) && (timeout > 0U)) {
 		timeout--;
 	}
 	if (timeout == 0U) {
 		return;
 	}
-	DL_UART_Main_transmitData(UART_0_INST, data);
+	DL_UART_Main_transmitData(uart, data);
 }
 
 void USART_Init(void)
@@ -28,11 +28,9 @@ void USART_Init(void)
 	NVIC_EnableIRQ(UART_0_INST_INT_IRQN);
 }
 
-//串口发送一个字节
-//The serial port sends a byte
-void USART_SendData(unsigned char data)
+void USART_SendData(UART_Regs *uart, unsigned char data)
 {
-	USART_SendByte_Blocking((uint8_t)data);
+	USART_SendByte_Blocking(uart, (uint8_t)data);
 }
 
 
@@ -68,9 +66,9 @@ int fputc(int ch, FILE *stream)
 {
 	(void)stream;
 	if (ch == '\n') {
-		USART_SendByte_Blocking('\r');
+		USART_SendByte_Blocking(UART_0_INST, '\r');
 	}
-	USART_SendByte_Blocking((uint8_t)ch);
+	USART_SendByte_Blocking(UART_0_INST, (uint8_t)ch);
 	return ch;
 }
 

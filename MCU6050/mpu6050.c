@@ -10,6 +10,7 @@
 
 #include "mpu6050.h"
 #include "ti/driverlib/dl_i2c.h"
+#include <math.h>
 #include <stddef.h>
 
 /* ------------------------------------------------------------------ */
@@ -27,6 +28,12 @@ static float s_gyroScale  = 1.0f / 131.0f;    /* ±250°/s default */
 static float s_gyroZeroX = 0.0f;
 static float s_gyroZeroY = 0.0f;
 static float s_gyroZeroZ = 0.0f;
+
+/* ---------- 新增：低通滤波 + 死区去底噪 ---------- */
+static float s_alpha    = 1.0f;   /* 低通系数 (0~1), 越小越平滑 */
+static float s_deadzone = 1.0f;   /* 死区阈值, |值| < 阈值时置零   */
+static float s_prevGx = 0.0f, s_prevGy = 0.0f, s_prevGz = 0.0f;
+static float s_prevAx = 0.0f, s_prevAy = 0.0f, s_prevAz = 0.0f;
 
 /* ================================================================== */
 /*  Low-level I2C helpers (保持不变)                                   */
@@ -229,7 +236,7 @@ bool MPU6050_ReadGyroRaw(MPU6050_RawData_t *out)
     out->x = (int16_t)((buf[0] << 8) | buf[1]);
     out->y = (int16_t)((buf[2] << 8) | buf[3]);
     out->z = (int16_t)((buf[4] << 8) | buf[5]);
-    if (out->z>-50 && out->z<50) {
+    if (out->z>-20 && out->z<20) {
         out->z = 0;
     }
     else {
@@ -284,7 +291,7 @@ bool MPU6050_CalibrateGyro(uint16_t samples)
 
     for (uint16_t i = 0; i < samples; i++) {
         MPU6050_Data_t data;
-        if (MPU6050_ReadAll(&data)) {
+        if (MPU6050_ReadAllCalibrated(&data)) {
             sumX += data.gx;
             sumY += data.gy;
             sumZ += data.gz;
@@ -318,6 +325,14 @@ void MPU6050_SetGyroZero(float x, float y, float z)
     s_gyroZeroZ = z;
 }
 
+void MPU6050_SetFilterParam(float alpha, float deadzone)
+{
+    if (alpha < 0.0f) alpha = 0.0f;
+    if (alpha > 1.0f) alpha = 1.0f;
+    s_alpha    = alpha;
+    s_deadzone = deadzone;
+}
+
 bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out)
 {
     if (!MPU6050_ReadAll(out)) return false;
@@ -326,6 +341,25 @@ bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out)
     out->gx -= s_gyroZeroX;
     out->gy -= s_gyroZeroY;
     out->gz -= s_gyroZeroZ;
+
+    /* 死区: 绝对值小于阈值的信号视为底噪，归零 */
+    if (fabsf(out->gx) < s_deadzone) out->gx = 0.0f;
+    if (fabsf(out->gy) < s_deadzone) out->gy = 0.0f;
+    if (fabsf(out->gz) < s_deadzone) out->gz = 0.0f;
+    if (fabsf(out->ax) < s_deadzone) out->ax = 0.0f;
+    if (fabsf(out->ay) < s_deadzone) out->ay = 0.0f;
+    if (fabsf(out->az) < s_deadzone) out->az = 0.0f;
+
+    /* 低通滤波: IIR 一阶低通, 平滑高频噪声 */
+    out->gx = s_alpha * out->gx + (1.0f - s_alpha) * s_prevGx;
+    out->gy = s_alpha * out->gy + (1.0f - s_alpha) * s_prevGy;
+    out->gz = s_alpha * out->gz + (1.0f - s_alpha) * s_prevGz;
+    out->ax = s_alpha * out->ax + (1.0f - s_alpha) * s_prevAx;
+    out->ay = s_alpha * out->ay + (1.0f - s_alpha) * s_prevAy;
+    out->az = s_alpha * out->az + (1.0f - s_alpha) * s_prevAz;
+
+    s_prevGx = out->gx;  s_prevGy = out->gy;  s_prevGz = out->gz;
+    s_prevAx = out->ax;  s_prevAy = out->ay;  s_prevAz = out->az;
 
     return true;
 }
