@@ -51,7 +51,10 @@ int StageIndex = 0;
 int StageFlag = 0;
 // 蓝牙时间戳
 uint32_t lastBluetoothTime = 0;
-
+// maixcam串口相关
+volatile uint8_t maixcam_buff[32] = {0};
+volatile uint16_t maixcam_length = 0;
+volatile uint8_t maixcam_flag = 0;
 // 串口相关
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
@@ -88,7 +91,8 @@ int main(void) {
 
 	// 初始化显示屏
 	Display_Init();
-
+	// 初始化maixcam
+	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN);
 	// 可选：开机显示欢迎信息
 	Display_ShowString(0, 0, "Car Ready");
 	delay_ms(2000);
@@ -392,6 +396,18 @@ int main(void) {
 		// 	printf(
 		// 		"Yaw: %.1f deg",yaw_angle);
 		// }
+		if (maixcam_flag) {
+			maixcam_flag = 0;
+			printf("RAW: ");
+			for (int i = 0; i < maixcam_length && i < 20; i++) {
+				printf("%02X ", maixcam_buff[i]);
+			}
+			printf("\n");
+			// int off_x, off_y;
+			// if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) == 2) {
+			// 	printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
+			// }
+		}
 		if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
 			// // 显示左右轮速度
 			// Display_WheelSpeeds();
@@ -485,6 +501,24 @@ void UART_0_INST_IRQHandler(void) {
 		break;
 
 	default: // 其他的串口中断	Other serial port interrupts
+		break;
+	}
+}
+// maixcam的串口中断服务
+void UART_MAIXCAM_INST_IRQHandler(void) {
+	switch (DL_UART_getPendingInterrupt(UART_MAIXCAM_INST)) {
+	case DL_UART_IIDX_RX: {
+		uint8_t data = DL_UART_Main_receiveData(UART_MAIXCAM_INST);
+		if (maixcam_length < 31 && data != '\0' && data != '\n') {
+			maixcam_buff[maixcam_length++] = data;
+		} else {
+			maixcam_buff[maixcam_length] = '\0';
+			maixcam_flag = 1;
+			maixcam_length = 0;
+		}
+		break;
+	}
+	default:
 		break;
 	}
 }
