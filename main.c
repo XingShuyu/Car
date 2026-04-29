@@ -59,6 +59,7 @@ volatile uint8_t recv0_flag = 0;
 
 // MPU相关
 MPU6050_RawData_t MPU6050Data;
+float nowAngle = 0;
 
 // 灰度循迹地址
 bool grayscale[8];
@@ -120,7 +121,7 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.03f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
 	// 时间轴开始
 	// buzzer_beep();
@@ -156,34 +157,45 @@ int main(void) {
 												   rightCountSnapshot);
 		}
 		if (getTimeMs(nowTime, lastIMUTime) > 10) {
-			float nowAngle = 0;
+
 			int32_t t = getTimeMs(nowTime, lastIMUTime);
 			lastIMUTime = nowTime;
 			MPU6050_ReadGyroRaw(&MPU6050Data);
-			nowAngle = MPU6050Data.z * t;
+			nowAngle += MPU6050Data.z * t / 1000.0;
 			LocControl locControl;
-			if (MPU6050Data.z > 0) {
-				locControl.accu = 0;
-				locControl.angle = nowAngle;
-				locControl.dirction = 0;
-				locControl.mode = 0;
-				locControl.speed = MPU6050Data.z;
-				Emm_Stop(2);
-				Emm_Loc_Control(2, &locControl);
-			} else if(MPU6050Data.z < 0){
-				locControl.accu = 0;
-				locControl.angle = -nowAngle;
-				locControl.dirction = 1;
-				locControl.mode = 0;
-				locControl.speed = -MPU6050Data.z;
-				Emm_Stop(2);
-				Emm_Loc_Control(2, &locControl);
+			// if (MPU6050Data.z > 0) {
+			// 	locControl.accu = 0;
+			// 	locControl.angle = nowAngle;
+			// 	locControl.dirction = 0;
+			// 	locControl.mode = 0;
+			// 	locControl.speed = MPU6050Data.z;
+			// 	Emm_Stop(2);
+			// 	Emm_Loc_Control(2, &locControl);
+			// } else if(MPU6050Data.z < 0){
+			// 	locControl.accu = 0;
+			// 	locControl.angle = -nowAngle;
+			// 	locControl.dirction = 1;
+			// 	locControl.mode = 0;
+			// 	locControl.speed = -MPU6050Data.z;
+			// 	Emm_Stop(2);
+			// 	Emm_Loc_Control(2, &locControl);
+			// }
+			// else {
+			// 	Emm_Stop(2);
+			// }
+			locControl.accu = 0;
+			float angle = fmodf(nowAngle, 360.0f);
+			if (angle < 0) {
+				angle += 360.0f;
 			}
-			else {
-				Emm_Stop(2);
-			}
+			locControl.angle = angle;
+			locControl.dirction = 0;
+			locControl.mode = 1;
+			locControl.speed = 1500;
+			// Emm_Stop(2);
+			Emm_Loc_Control(2, &locControl);
 			char msg[16];
-			sprintf(msg,"%d,%f",MPU6050Data.y,nowAngle);
+			sprintf(msg, "%d,%f", MPU6050Data.z, fmod(nowAngle, 360.0));
 			Display_ShowString(0, 0, msg);
 			Display_Clear();
 		}
