@@ -126,9 +126,6 @@ int main(void) {
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
-
-	// 时间轴开始
-	// buzzer_beep();
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
 	while (1) {
@@ -219,16 +216,9 @@ int main(void) {
 					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) > 40)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-					StageFlag++;
-				}
-				if (StageFlag > 1) {
-					StageFlag++;
-				}
-				if (StageFlag >= 5) {
 					StageFlag = 0;
 					StageIndex++;
 				}
-			}
 			if (command[StageIndex] == 2) {
 				// StageRight
 				if (StageFlag == 0) {
@@ -333,8 +323,18 @@ int main(void) {
 				}
 			}
 			if (command[StageIndex] == 8) {
-				// StageNull
-				StageIndex++;
+				// StageStartJudge
+				if (Grayscale_Cross(grayscale, 1)) {
+					// 右直角, AD起点
+					StageFlag = 0;
+					StageIndex++;
+
+				} else if (Grayscale_Cross(grayscale, 2)) {
+					// 左直角, AB起点
+					StageFlag = 0;
+					StageIndex++;
+				} else {
+				}
 			}
 			if (command[StageIndex] == 9) {
 				// StageFinsih
@@ -356,6 +356,15 @@ int main(void) {
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 				buzzer_beep();
 				StageIndex++;
+			}
+			if (command[StageIndex] == 11) {
+				// StageFake
+				if(_read_channel_stable(3)||_read_channel_stable(4)||_read_channel_stable(2)||_read_channel_stable(5)){
+					StageIndex-=2;
+				}
+				else {
+					StageIndex++;
+				}
 			}
 			lastStageTime = nowTime;
 		}

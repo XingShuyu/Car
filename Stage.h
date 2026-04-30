@@ -2,20 +2,22 @@
 #define STAGE_H
 
 enum Stage {
-	StageStart = 1,
+	StageRush = 1,
 	StageRight = 2,
-    StageRightRound =3,
+	StageRightRound = 3,
 	StageLeft = 4,
-    StageLeftRound = 5,
+	StageLeftRound = 5,
 	StageCross = 6,
-	Stageultrasonic=7,
-	StageNull=8,
-	StageFinsih=9,
-	StageBizz=10
+	Stageultrasonic = 7,
+	StageStartJudge = 8,
+	StageFinsih = 9,
+	StageBizz = 10,
+	StageFake = 11
 };
 
-int16_t command[] = {
-    // 1,1,2,1,3,6,10,1,4,1,5,4,1,5,2,1,3,6,1,5,7,3,7,3,7,9
+int16_t command[][] = {
+	{1, 5, 4, 1, 5, 4, 1, 5, 4, 1, 5, 4, 9}, {10}, {10}, {10}
+	// 1,1,2,1,3,6,10,1,4,1,5,4,1,5,2,1,3,6,1,5,7,3,7,3,7,9
 	// 2,9
 	// 10,1,2,1,3,2,1,3
 };
