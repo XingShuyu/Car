@@ -59,10 +59,10 @@ volatile uint8_t maixcam_flag = 0;
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
-//状态机下标
-uint8_t Stage_index=0;
-//key
-uint8_t key_last=0;
+// 状态机下标
+uint8_t Stage_index = 0;
+// key
+uint8_t key_last = 0;
 
 // MPU相关
 MPU6050_RawData_t MPU6050Data;
@@ -116,104 +116,104 @@ int main(void) {
 
 	// 打印启动信息
 	printf("MSPM0G3507 D157B Motor Test Start!\r\n");
-	// 使能云台
-	Emm_Init(1);
-	delay_ms(10);
-	Emm_Init(2);
-	delay_ms(10);
+	// // 使能云台
+	// Emm_Init(1);
+	// delay_ms(10);
+	// Emm_Init(2);
+	// delay_ms(10);
 
-	
 	// 电机初始化
 	NewMotor_SpeedCtrl motor;
 	NewMotorSpeedCtrl_Init(&motor, 0.03f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
-	// 获取启动时间tick
-	startTime = getNowMs();
-	while(getTimeMs(startTime, getNowMs())<3000){
-		uint8_t key_curr=DL_GPIO_readPins(key_PORT,key_PIN_B23_PIN);
-        if(key_curr!=key_last){
-			key_last=key_curr;
-			Stage_index++;
-		}
-	}
-	Stage_index/=2;
-	Stage_index--;
+	buzzer_beep();
+	// // 获取启动时间tick
+	// startTime = getNowMs();
+	// while (getTimeMs(startTime, getNowMs()) < 3000) {
+	// 	uint8_t key_curr = DL_GPIO_readPins(key_PORT, key_PIN_B23_PIN);
+	// 	if (key_curr != key_last) {
+	// 		key_last = key_curr;
+	// 		Stage_index++;
+	// 	}
+	// }
+	// Stage_index /= 2;
+	// Stage_index--;
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		// 每30ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
-			int32_t leftCountSnapshot;
-			int32_t rightCountSnapshot;
-			motor.sample_period_s =
-				(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
-			lastMotorSpeedTime = nowTime;
+		// if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
+		// 	int32_t leftCountSnapshot;
+		// 	int32_t rightCountSnapshot;
+		// 	motor.sample_period_s =
+		// 		(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
+		// 	lastMotorSpeedTime = nowTime;
 
-			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
-			__disable_irq();
-			leftCountSnapshot = motorLeftCount;
-			rightCountSnapshot = motorRightCount;
-			motorLeftCount = 0;
-			motorRightCount = 0;
-			__enable_irq();
+		// 	// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+		// 	__disable_irq();
+		// 	leftCountSnapshot = motorLeftCount;
+		// 	rightCountSnapshot = motorRightCount;
+		// 	motorLeftCount = 0;
+		// 	motorRightCount = 0;
+		// 	__enable_irq();
 
-			motorRightSpeed =
-				(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-			motorLeftSpeed =
-				(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-			leftDistance += leftCountSnapshot;
-			rightDistance += rightCountSnapshot;
+		// 	motorRightSpeed =
+		// 		(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+		// 	motorLeftSpeed =
+		// 		(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+		// 	leftDistance += leftCountSnapshot;
+		// 	rightDistance += rightCountSnapshot;
 
-			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-												   rightCountSnapshot);
-		}
-		if (getTimeMs(nowTime, lastIMUTime) > 10) {
+		// 	NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+		// 										   rightCountSnapshot);
+		// }
+		// if (getTimeMs(nowTime, lastIMUTime) > 10) {
 
-			int32_t t = getTimeMs(nowTime, lastIMUTime);
-			lastIMUTime = nowTime;
-			MPU6050_ReadGyroRaw(&MPU6050Data);
-			nowAngle += MPU6050Data.z * t / 1000.0;
-			LocControl locControl;
-			// if (MPU6050Data.z > 0) {
-			// 	locControl.accu = 0;
-			// 	locControl.angle = nowAngle;
-			// 	locControl.dirction = 0;
-			// 	locControl.mode = 0;
-			// 	locControl.speed = MPU6050Data.z;
-			// 	Emm_Stop(2);
-			// 	Emm_Loc_Control(2, &locControl);
-			// } else if(MPU6050Data.z < 0){
-			// 	locControl.accu = 0;
-			// 	locControl.angle = -nowAngle;
-			// 	locControl.dirction = 1;
-			// 	locControl.mode = 0;
-			// 	locControl.speed = -MPU6050Data.z;
-			// 	Emm_Stop(2);
-			// 	Emm_Loc_Control(2, &locControl);
-			// }
-			// else {
-			// 	Emm_Stop(2);
-			// }
-			locControl.accu = 0;
-			float angle = fmodf(nowAngle, 360.0f);
-			if (angle < 0) {
-				angle += 360.0f;
-			}
-			locControl.angle = angle;
-			locControl.dirction = 0;
-			locControl.mode = 1;
-			locControl.speed = 1500;
-			// Emm_Stop(2);
-			Emm_Loc_Control(2, &locControl);
-			char msg[16];
-			sprintf(msg, "%d,%f", MPU6050Data.z, fmod(nowAngle, 360.0));
-			Display_ShowString(0, 0, msg);
-			Display_Clear();
-		}
+		// 	int32_t t = getTimeMs(nowTime, lastIMUTime);
+		// 	lastIMUTime = nowTime;
+		// 	MPU6050_ReadGyroRaw(&MPU6050Data);
+		// 	nowAngle += MPU6050Data.z * t / 1000.0;
+		// 	LocControl locControl;
+		// 	// if (MPU6050Data.z > 0) {
+		// 	// 	locControl.accu = 0;
+		// 	// 	locControl.angle = nowAngle;
+		// 	// 	locControl.dirction = 0;
+		// 	// 	locControl.mode = 0;
+		// 	// 	locControl.speed = MPU6050Data.z;
+		// 	// 	Emm_Stop(2);
+		// 	// 	Emm_Loc_Control(2, &locControl);
+		// 	// } else if(MPU6050Data.z < 0){
+		// 	// 	locControl.accu = 0;
+		// 	// 	locControl.angle = -nowAngle;
+		// 	// 	locControl.dirction = 1;
+		// 	// 	locControl.mode = 0;
+		// 	// 	locControl.speed = -MPU6050Data.z;
+		// 	// 	Emm_Stop(2);
+		// 	// 	Emm_Loc_Control(2, &locControl);
+		// 	// }
+		// 	// else {
+		// 	// 	Emm_Stop(2);
+		// 	// }
+		// 	locControl.accu = 0;
+		// 	float angle = fmodf(nowAngle, 360.0f);
+		// 	if (angle < 0) {
+		// 		angle += 360.0f;
+		// 	}
+		// 	locControl.angle = angle;
+		// 	locControl.dirction = 0;
+		// 	locControl.mode = 1;
+		// 	locControl.speed = 1500;
+		// 	// Emm_Stop(2);
+		// 	Emm_Loc_Control(2, &locControl);
+		// 	char msg[16];
+		// 	sprintf(msg, "%d,%f", MPU6050Data.z, fmod(nowAngle, 360.0));
+		// 	Display_ShowString(0, 0, msg);
+		// 	Display_Clear();
+		// }
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			if (command[StageIndex] == 1) {
@@ -233,6 +233,7 @@ int main(void) {
 					StageFlag = 0;
 					StageIndex++;
 				}
+			}
 			if (command[StageIndex] == 2) {
 				// StageRight
 				if (StageFlag == 0) {
@@ -373,10 +374,10 @@ int main(void) {
 			}
 			if (command[StageIndex] == 11) {
 				// StageFake
-				if(_read_channel_stable(3)||_read_channel_stable(4)||_read_channel_stable(2)||_read_channel_stable(5)){
-					StageIndex-=2;
-				}
-				else {
+				if (_read_channel_stable(3) || _read_channel_stable(4) ||
+					_read_channel_stable(2) || _read_channel_stable(5)) {
+					StageIndex -= 2;
+				} else {
 					StageIndex++;
 				}
 			}
@@ -419,23 +420,24 @@ int main(void) {
 		// 	printf(
 		// 		"Yaw: %.1f deg",yaw_angle);
 		// }
-		if (maixcam_flag) {
-			maixcam_flag = 0;
-			// printf("RAW: ");
-			// for (int i = 0; i < maixcam_length && i < 20; i++) {
-			// 	printf("%02X ", maixcam_buff[i]);
-			// }
-			// printf("\n");
-			int off_x, off_y;
-			if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) == 2) {
-				printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
-			}
-		}
-		if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
-			// // 显示左右轮速度
-			// Display_WheelSpeeds();
-			// Display_Clear();
-		}
+		// if (maixcam_flag) {
+		// 	maixcam_flag = 0;
+		// 	// printf("RAW: ");
+		// 	// for (int i = 0; i < maixcam_length && i < 20; i++) {
+		// 	// 	printf("%02X ", maixcam_buff[i]);
+		// 	// }
+		// 	// printf("\n");
+		// 	int off_x, off_y;
+		// 	if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) ==
+		// 		2) {
+		// 		printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
+		// 	}
+		// }
+		// if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
+		// 	// // 显示左右轮速度
+		// 	// Display_WheelSpeeds();
+		// 	// Display_Clear();
+		// }
 	}
 }
 
@@ -562,8 +564,10 @@ void process_imu_for_horizontal_motion(float dt) {
 void buzzer_beep(void) {
 	for (int i = 0; i < 3; i++) {
 		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16); // 关闭蜂鸣器
+		DL_GPIO_clearPins(GPIOB, DL_GPIO_PIN_22);
 		delay_ms(100);
 		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16); // 打开蜂鸣器
+		DL_GPIO_setPins(GPIOB, DL_GPIO_PIN_22);
 		delay_ms(100);
 	}
 }
