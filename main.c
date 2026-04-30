@@ -59,6 +59,10 @@ volatile uint8_t maixcam_flag = 0;
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
+//状态机下标
+uint8_t Stage_index=0;
+//key
+uint8_t key_last=0;
 
 // MPU相关
 MPU6050_RawData_t MPU6050Data;
@@ -118,8 +122,7 @@ int main(void) {
 	Emm_Init(2);
 	delay_ms(10);
 
-	// 获取启动时间tick
-	startTime = getNowMs();
+	
 	// 电机初始化
 	NewMotor_SpeedCtrl motor;
 	NewMotorSpeedCtrl_Init(&motor, 0.03f);
@@ -131,6 +134,17 @@ int main(void) {
 	// buzzer_beep();
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
+	// 获取启动时间tick
+	startTime = getNowMs();
+	while(getTimeMs(startTime, getNowMs())<3000){
+		uint8_t key_curr=DL_GPIO_readPins(key_PORT,key_PIN_B23_PIN);
+        if(key_curr!=key_last){
+			key_last=key_curr;
+			Stage_index++;
+		}
+	}
+	Stage_index/=2;
+	Stage_index--;
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
@@ -398,15 +412,15 @@ int main(void) {
 		// }
 		if (maixcam_flag) {
 			maixcam_flag = 0;
-			printf("RAW: ");
-			for (int i = 0; i < maixcam_length && i < 20; i++) {
-				printf("%02X ", maixcam_buff[i]);
-			}
-			printf("\n");
-			// int off_x, off_y;
-			// if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) == 2) {
-			// 	printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
+			// printf("RAW: ");
+			// for (int i = 0; i < maixcam_length && i < 20; i++) {
+			// 	printf("%02X ", maixcam_buff[i]);
 			// }
+			// printf("\n");
+			int off_x, off_y;
+			if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) == 2) {
+				printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
+			}
 		}
 		if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
 			// // 显示左右轮速度
