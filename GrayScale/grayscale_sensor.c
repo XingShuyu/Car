@@ -70,7 +70,7 @@ void Grayscale_Sensor_Init(void) {}
 void Grayscale_Sensor_Read_All(bool *sensor_values) {
 	uint8_t i;
 	for (i = 0; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
-		sensor_values[i] = _read_channel_stable(i);
+		sensor_values[i] = _read_channel_stable(7-i);
 	}
 }
 

@@ -117,11 +117,21 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 		error = -1;
 	} else if (sensor_values[3] == 1 && sensor_values[4] == 1) {
 		error = 0;
+	} else if (sensor_values[0] == 1) {
+		error = -7;
+	}
+	else if (sensor_values[7] == 1) {
+		error = 7;
+	}else if (sensor_values[1] == 1) {
+		error = -5;
+	}
+	else if (sensor_values[6] == 1) {
+		error = 5;
 	}
 
 	pid_output_IRR = (int)(Track_PID(error));
 
-	return pid_output_IRR;
+	return 600/400*pid_output_IRR;
 
 	// // wNow = pid->p * eNew + pid->d * (eNew - eOld);
 	// wNow += PID_calculate(pid, eRow, eOld, ePrev);

@@ -25,8 +25,8 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
 // 基础速度
-int BaseSpeed = 300;
-int RoundSpeed = 200;
+int BaseSpeed = 450;
+int RoundSpeed = 170;
 // 障碍物距离
 float distance;
 //-------------------
@@ -128,6 +128,7 @@ int main(void) {
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	float distence[2];
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
 	buzzer_beep();
@@ -146,31 +147,31 @@ int main(void) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		// 每30ms获取电机运行圈数
-		// if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
-		// 	int32_t leftCountSnapshot;
-		// 	int32_t rightCountSnapshot;
-		// 	motor.sample_period_s =
-		// 		(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
-		// 	lastMotorSpeedTime = nowTime;
+		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
+			int32_t leftCountSnapshot;
+			int32_t rightCountSnapshot;
+			motor.sample_period_s =
+				(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
+			lastMotorSpeedTime = nowTime;
 
-		// 	// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
-		// 	__disable_irq();
-		// 	leftCountSnapshot = motorLeftCount;
-		// 	rightCountSnapshot = motorRightCount;
-		// 	motorLeftCount = 0;
-		// 	motorRightCount = 0;
-		// 	__enable_irq();
+			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+			__disable_irq();
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
+			motorLeftCount = 0;
+			motorRightCount = 0;
+			__enable_irq();
 
-		// 	motorRightSpeed =
-		// 		(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-		// 	motorLeftSpeed =
-		// 		(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-		// 	leftDistance += leftCountSnapshot;
-		// 	rightDistance += rightCountSnapshot;
+			motorRightSpeed =
+				(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+			motorLeftSpeed =
+				(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+			leftDistance += leftCountSnapshot;
+			rightDistance += rightCountSnapshot;
 
-		// 	NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-		// 										   rightCountSnapshot);
-		// }
+			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+												   rightCountSnapshot);
+		}
 		// if (getTimeMs(nowTime, lastIMUTime) > 10) {
 
 		// 	int32_t t = getTimeMs(nowTime, lastIMUTime);
@@ -219,17 +220,23 @@ int main(void) {
 			if (command[StageIndex] == 1) {
 				// 猛冲一下
 				if (StageFlag == 0) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
-														 BaseSpeed);
+					NewMotorSpeedCtrl_SetTargetWheelMmps(
+						&motor, 0.7 * BaseSpeed, 0.7 * BaseSpeed);
 					rightDistance = 0;
 					leftDistance = 0;
 					StageFlag++;
 				}
 				if (StageFlag == 1 &&
-					(NewMotor_EncoderDeltaToDistanceMm(leftDistance) > 40 &&
-					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) > 40)) {
+					(NewMotor_EncoderDeltaToDistanceMm(leftDistance) > 70 &&
+					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) > 70)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+					StageFlag++;
+				}
+				if (StageFlag <= 5 && StageFlag >= 2) {
+					StageFlag++;
+				}
+				if (StageFlag >= 6) {
 					StageFlag = 0;
 					StageIndex++;
 				}
@@ -288,8 +295,8 @@ int main(void) {
 				if (StageFlag == 0) {
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (RoundSpeed),
-													 -(RoundSpeed));
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -(RoundSpeed),
+													 (RoundSpeed));
 				if (_read_channel_stable(4)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
@@ -301,20 +308,38 @@ int main(void) {
 			if (command[StageIndex] == 6) {
 				// StageCross
 				if (StageFlag == 0) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
-														 BaseSpeed);
+					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.8*BaseSpeed,
+														 0.8*BaseSpeed);
+					rightDistance = 0;
+					leftDistance = 0;
 					StageFlag++;
 				}
-				if (!Grayscale_Cross(grayscale, 0)) {
+				if (StageFlag > 0&&StageFlag<=5) {
 					grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 					float irr = Grayscale_Line(&grayscalePid, grayscale);
-					NewMotorSpeedCtrl_SetTargetRobot(&motor, BaseSpeed, irr);
-
-				} else {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+					NewMotorSpeedCtrl_SetTargetRobot(&motor, 0.8*BaseSpeed, irr);
+				}
+				if (StageFlag > 5 ) {
 					StageFlag = 0;
+					char str[32];
+					printf("l1: %.2f",distence[0]);
+					printf("l2: %.2f",distence[1]);
 					StageIndex++;
+				}
+				if ((Grayscale_Cross(grayscale, 0)||Grayscale_Cross(grayscale, 2)||Grayscale_Cross(grayscale, 1))&& StageFlag%2==1) {
+					
+					if (StageFlag == 3) {
+					distence[0] = NewMotor_EncoderDeltaToDistanceMm(leftDistance)-18;
+					}
+					if (StageFlag == 5) {
+					distence[1] = NewMotor_EncoderDeltaToDistanceMm(leftDistance)-18;
+					}
+					rightDistance = 0;
+					leftDistance = 0;
+					StageFlag++;
+				}
+				if (!(Grayscale_Cross(grayscale, 0)||Grayscale_Cross(grayscale, 2)||Grayscale_Cross(grayscale, 1))&& StageFlag%2==0) {
+					StageFlag++;
 				}
 			}
 			if (command[StageIndex] == 7) {
@@ -342,7 +367,7 @@ int main(void) {
 				if (Grayscale_Cross(grayscale, 1)) {
 					// 右直角, AD起点
 					StageFlag = 0;
-					StageIndex++;
+					StageIndex = 23;
 
 				} else if (Grayscale_Cross(grayscale, 2)) {
 					// 左直角, AB起点
@@ -380,6 +405,28 @@ int main(void) {
 				} else {
 					StageIndex++;
 				}
+			}
+			if (command[StageIndex] == 12) {
+				// StageStop
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+			}
+			if (command[StageIndex] == 13) {
+				// StageLength
+				// if (StageFlag == 0) {
+				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				// 	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+				// 	NewMotorSpeedCtrl_SetPid(&motor, 0.0, 0.0, 0.0);
+				// 	rightDistance = 0;
+				// 	leftDistance = 0;
+				// 	StageFlag++;
+				// }
+				// if (StageFlag == 1 ) {
+				// 	char str[20];
+				// 	sprintf(str, "distence:
+				// %.2f",NewMotor_EncoderDeltaToDistanceMm(leftDistance));
+				// 	Display_ShowString(0, 0, str);
+				// }
 			}
 			lastStageTime = nowTime;
 		}
