@@ -45,6 +45,8 @@ uint32_t lastIMUTime = 0;
 uint32_t lastStageTime = 0;
 // OLED时间戳
 uint32_t lastOLEDTime = 0;
+//状态机下标
+int TextIndex=0;
 // 阶段索引
 int StageIndex = 0;
 // 阶段标志位
@@ -59,8 +61,6 @@ volatile uint8_t maixcam_flag = 0;
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
-// 状态机下标
-uint8_t Stage_index = 0;
 // key
 uint8_t key_last = 0;
 
@@ -132,17 +132,23 @@ int main(void) {
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
 	buzzer_beep();
-	// // 获取启动时间tick
-	// startTime = getNowMs();
-	// while (getTimeMs(startTime, getNowMs()) < 3000) {
-	// 	uint8_t key_curr = DL_GPIO_readPins(key_PORT, key_PIN_B23_PIN);
-	// 	if (key_curr != key_last) {
-	// 		key_last = key_curr;
-	// 		Stage_index++;
-	// 	}
-	// }
-	// Stage_index /= 2;
-	// Stage_index--;
+	// 获取启动时间tick
+	startTime = getNowMs();
+	int TempIndex=0;
+	while (getTimeMs( getNowMs(),startTime) < 3000) {
+		
+		uint8_t key_curr = DL_GPIO_readPins(key_PORT, key_PIN_B23_PIN);
+		if (key_curr != key_last) {
+			key_last = key_curr;
+			TempIndex++;
+		}
+	}
+	TempIndex /= 2;
+	TextIndex+=TempIndex;
+	char str[8];
+	sprintf(str,"now: %d", TextIndex);
+	Display_ShowString(0, 0, str);
+	int16_t *command=commandList[TextIndex];
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
@@ -321,7 +327,6 @@ int main(void) {
 				}
 				if (StageFlag > 5 ) {
 					StageFlag = 0;
-					char str[32];
 					printf("l1: %.2f",distence[0]);
 					printf("l2: %.2f",distence[1]);
 					StageIndex++;
