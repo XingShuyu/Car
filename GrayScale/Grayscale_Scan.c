@@ -13,12 +13,12 @@ int pid_output_IRR = 0;
 #define IRTrack_Minddle 0 // 中间的值
 
 // 巡线pid
+int8_t error_last = 0;
+// 积分
+float IRTrack_Integral;
 float Track_PID(int8_t actual_value) {
 	float IRTrackTurn = 0;
 	int8_t error;
-	static int8_t error_last = 0;
-	static float IRTrack_Integral; // 积分
-
 	error = actual_value - IRTrack_Minddle;
 
 	IRTrack_Integral += error;
@@ -39,8 +39,8 @@ float Track_PID(int8_t actual_value) {
 float Grayscale_Line(PID *pid, bool *sensor_values) {
 	// static float wNow, eOld, ePrev;
 	// error>0 左转
-	static float eOld, eNew;
-	float eRow, weightedSum;
+	// static float eOld, eNew;
+	// float eRow, weightedSum;
 	// int activeSensor;
 	Grayscale_Sensor_Read_All(sensor_values);
 	// weightedSum = 0;
@@ -152,7 +152,7 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 		error = 7;
 	} else if (sensor_values[1] == 1 && sensor_values[2] == 1) {
 		error = -7;
-	} else if (sensor_values[7] == 1 ) {
+	} else if (sensor_values[7] == 1) {
 		error = 10;
 	} else if (sensor_values[0] == 1) {
 		error = -10;
@@ -179,13 +179,14 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 bool Grayscale_Cross(bool *sensor_values, int status) {
 	Grayscale_Sensor_Read_All(sensor_values);
 	if (status == 2) {
-		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
+		return (sensor_values[0] == 0 &&sensor_values[4]>0&& sensor_values[6] > 0 &&
 				sensor_values[7] > 0 && sensor_values[5] > 0);
 	} else if (status == 1) {
 		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
-				sensor_values[2] > 0 && sensor_values[7] == 0);
+				sensor_values[2] > 0 &&sensor_values[3]>0&& sensor_values[7] == 0);
 	} else if (status == 0) {
 		return (sensor_values[2] > 0 && sensor_values[1] > 0 &&
+				sensor_values[3] > 0 && sensor_values[4] > 0 &&
 				sensor_values[6] > 0 && sensor_values[5] > 0);
 	} else {
 		return false;
@@ -202,6 +203,8 @@ void Grayscale_Zero(bool *sensor_values) {
 	sensor_values[6] = 0;
 	sensor_values[7] = 0;
 	error = 0;
+	error_last = 0;
+	IRTrack_Integral = 0.0;
 }
 
 int Grayscale_OnlineNum(bool *sensor_values) {

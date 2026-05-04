@@ -26,7 +26,7 @@ PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
 // 基础速度
 int BaseSpeed = 450;
-int RoundSpeed = 170;
+int RoundSpeed = 200;
 float distance;
 // l1 l2距离
 float distence[2];
@@ -136,7 +136,7 @@ int main(void) {
 
 	// 初始化 MPU6050（默认 ±2g / ±250°/s）
 	MPU6050_Init();
-	buzzer_beep();
+	// buzzer_beep();
 	// 获取启动时间tick
 	startTime = getNowMs();
 	// int TempIndex = 0;
@@ -194,66 +194,31 @@ int main(void) {
 			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
 												   rightCountSnapshot);
 		}
-		// if (getTimeMs(nowTime, lastIMUTime) > 10) {
-
-		// 	int32_t t = getTimeMs(nowTime, lastIMUTime);
-		// 	lastIMUTime = nowTime;
-		// 	MPU6050_ReadGyroRaw(&MPU6050Data);
-		// 	nowAngle += MPU6050Data.z * t / 1000.0;
-		// 	LocControl locControl;
-		// 	// if (MPU6050Data.z > 0) {
-		// 	// 	locControl.accu = 0;
-		// 	// 	locControl.angle = nowAngle;
-		// 	// 	locControl.dirction = 0;
-		// 	// 	locControl.mode = 0;
-		// 	// 	locControl.speed = MPU6050Data.z;
-		// 	// 	Emm_Stop(2);
-		// 	// 	Emm_Loc_Control(2, &locControl);
-		// 	// } else if(MPU6050Data.z < 0){
-		// 	// 	locControl.accu = 0;
-		// 	// 	locControl.angle = -nowAngle;
-		// 	// 	locControl.dirction = 1;
-		// 	// 	locControl.mode = 0;
-		// 	// 	locControl.speed = -MPU6050Data.z;
-		// 	// 	Emm_Stop(2);
-		// 	// 	Emm_Loc_Control(2, &locControl);
-		// 	// }
-		// 	// else {
-		// 	// 	Emm_Stop(2);
-		// 	// }
-		// 	locControl.accu = 0;
-		// 	float angle = fmodf(nowAngle, 360.0f);
-		// 	if (angle < 0) {
-		// 		angle += 360.0f;
-		// 	}
-		// 	locControl.angle = angle;
-		// 	locControl.dirction = 0;
-		// 	locControl.mode = 1;
-		// 	locControl.speed = 1500;
-		// 	// Emm_Stop(2);
-		// 	Emm_Loc_Control(2, &locControl);
-		// 	char msg[16];
-		// 	sprintf(msg, "%d,%f", MPU6050Data.z, fmod(nowAngle, 360.0));
-		// 	Display_ShowString(0, 0, msg);
-		// 	Display_Clear();
-		// }
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			if (command[StageIndex] == 1) {
 				// 猛冲一下
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, 0.7 * BaseSpeed, 0.7 * BaseSpeed);
+						&motor, 0.8 * BaseSpeed, 0.8 * BaseSpeed);
 					rightDistance = 0;
 					leftDistance = 0;
 					StageFlag++;
 				}
 				if (StageFlag == 1 &&
-					(NewMotor_EncoderDeltaToDistanceMm(leftDistance) > 70 &&
-					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) > 70)) {
+					(NewMotor_EncoderDeltaToDistanceMm(leftDistance) > 110 &&
+					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) > 110)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag++;
+				} else if (StageFlag == 1) {
+					float speedP = 0.8 * (1 - NewMotor_EncoderDeltaToDistanceMm(
+												  leftDistance) /
+												  110.0) +
+								   0.2;
+					NewMotorSpeedCtrl_SetTargetWheelMmps(
+						&motor, 0.8*speedP * BaseSpeed,
+						0.8 * speedP * BaseSpeed);
 				}
 				if (StageFlag <= 10 && StageFlag >= 2) {
 					StageFlag++;
@@ -268,6 +233,7 @@ int main(void) {
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
 														 BaseSpeed);
+					Grayscale_Zero(grayscale);
 					StageFlag++;
 				}
 				if (!Grayscale_Cross(grayscale, 1)) {
@@ -282,24 +248,32 @@ int main(void) {
 			}
 			if (command[StageIndex] == 3) {
 				// StageRightRound
+				float base = 1.0;
 				if (StageFlag == 0) {
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (RoundSpeed),
-													 -(RoundSpeed));
-				if (_read_channel_stable(3)) {
+				if (_read_channel_stable(4)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
+				} else if (_read_channel_stable(7)) {
+					base = 0.5;
+				} else if (_read_channel_stable(6)) {
+					base = 0.3;
+				} else if (_read_channel_stable(5)) {
+					base = 0.1;
 				}
+				NewMotorSpeedCtrl_SetTargetWheelMmps(
+					&motor, (base * RoundSpeed), -(base * RoundSpeed));
 			}
 			if (command[StageIndex] == 4) {
 				// StageLeft
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
 														 BaseSpeed);
+					Grayscale_Zero(grayscale);
 					StageFlag++;
 				}
 				if (!Grayscale_Cross(grayscale, 2)) {
@@ -314,24 +288,31 @@ int main(void) {
 			}
 			if (command[StageIndex] == 5) {
 				// StageLeftRound
+				float base = 1.0;
 				if (StageFlag == 0) {
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -(RoundSpeed),
-													 (RoundSpeed));
-				if (_read_channel_stable(4)) {
+				if (_read_channel_stable(3)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
+				} else if (_read_channel_stable(0)) {
+					base = 0.5;
+				} else if (_read_channel_stable(1)) {
+					base = 0.3;
+				} else if (_read_channel_stable(2)) {
+					base = 0.1;
 				}
+				NewMotorSpeedCtrl_SetTargetWheelMmps(
+					&motor, -(base * RoundSpeed), (base * RoundSpeed));
 			}
 			if (command[StageIndex] == 6) {
 				// StageCross
 				if (StageFlag == 0) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, 0.8 * BaseSpeed, 0.8 * BaseSpeed);
+					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
+														 BaseSpeed);
 					rightDistance = 0;
 					leftDistance = 0;
 					StageFlag++;
@@ -339,8 +320,7 @@ int main(void) {
 				if (StageFlag > 0 && StageFlag <= 5) {
 					grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 					float irr = Grayscale_Line(&grayscalePid, grayscale);
-					NewMotorSpeedCtrl_SetTargetRobot(&motor, 0.8 * BaseSpeed,
-													 irr);
+					NewMotorSpeedCtrl_SetTargetRobot(&motor, BaseSpeed, irr);
 				}
 				if (StageFlag > 5) {
 					StageFlag = 0;
@@ -413,13 +393,14 @@ int main(void) {
 				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 				float irr = Grayscale_Line(&grayscalePid, grayscale);
 				irr = 0.0;
-				NewMotorSpeedCtrl_SetTargetRobot(&motor, 0.5*BaseSpeed, irr);
+				NewMotorSpeedCtrl_SetTargetRobot(&motor, 0.5 * BaseSpeed, irr);
 				if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
-					grayscale[2] == 0 && grayscale[3] == 0 &&
-					grayscale[4] == 0 && grayscale[5] == 0 &&
-					grayscale[6] == 0 && grayscale[7] == 0)) {
+					  grayscale[2] == 0 && grayscale[3] == 0 &&
+					  grayscale[4] == 0 && grayscale[5] == 0 &&
+					  grayscale[6] == 0 && grayscale[7] == 0)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+					buzzer_beep();
 					break;
 				}
 			}
@@ -432,8 +413,10 @@ int main(void) {
 			}
 			if (command[StageIndex] == 11) {
 				// StageFake
-				if (_read_channel_stable(3) || _read_channel_stable(4) ||
-					_read_channel_stable(2) || _read_channel_stable(5)) {
+				if (_read_channel_stable(0) || _read_channel_stable(1) ||
+					_read_channel_stable(2) || _read_channel_stable(3) ||
+					_read_channel_stable(4) || _read_channel_stable(5) ||
+					_read_channel_stable(6) || _read_channel_stable(7)) {
 					StageIndex -= 2;
 				} else {
 					StageIndex++;
@@ -441,19 +424,40 @@ int main(void) {
 			}
 			if (command[StageIndex] == 12) {
 				// StageStop
-				if (StageFlag == 0) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, 0.5 * -BaseSpeed, 0.5 * -BaseSpeed);
-					rightDistance = 0;
-					leftDistance = 0;
+				// if (StageFlag == 0) {
+				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(
+				// 		&motor, 0.5 * -BaseSpeed, 0.5 * -BaseSpeed);
+				// 	rightDistance = 0;
+				// 	leftDistance = 0;
+				// 	StageFlag++;
+				// }
+				// if (StageFlag == 1 &&
+				// 	(NewMotor_EncoderDeltaToDistanceMm(leftDistance) < -80 &&
+				// 	 NewMotor_EncoderDeltaToDistanceMm(rightDistance) < -80)) {
+				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				// 	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+				// 	StageFlag++;
+				// }
+				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+				Grayscale_Line(&grayscalePid, grayscale);
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
+													 0.5 * -BaseSpeed);
+				if (grayscale[0] == 0 && grayscale[1] == 0 &&
+					grayscale[2] == 0 && grayscale[3] == 0 &&
+					grayscale[4] == 0 && grayscale[5] == 0 &&
+					grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
 					StageFlag++;
 				}
-				if (StageFlag == 1 &&
-					(NewMotor_EncoderDeltaToDistanceMm(leftDistance) < -20 &&
-					 NewMotor_EncoderDeltaToDistanceMm(rightDistance) < -20)) {
+				if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
+					  grayscale[2] == 0 && grayscale[3] == 0 &&
+					  grayscale[4] == 0 && grayscale[5] == 0 &&
+					  grayscale[6] == 0 && grayscale[7] == 0) &&
+					StageFlag == 1) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-					StageFlag++;
+					NewMotor_Stop(NEWMOTOR_STOP_COAST);
+					buzzer_beep();
+					StageFlag = 0;
+					break;
 				}
 			}
 			if (command[StageIndex] == StageTurn145) {
@@ -472,20 +476,19 @@ int main(void) {
 				} else {
 					float t = getTimeMs(getNowMs(), lastStageTime);
 					MPU6050_ReadGyroRaw(&MPU6050Data);
-					nowAngle += MPU6050Data.z * t/1000.0;
+					nowAngle += MPU6050Data.z * t / 1000.0;
 					char str[16];
-					sprintf(str, "ang:%.2f",nowAngle);
+					sprintf(str, "ang:%.2f", nowAngle);
 					Display_ShowString(0, 0, str);
-					float error = (-nowAngle+135) / 135 + 0.3;
+					float error = (-nowAngle + 135) / 135 + 0.3;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
 						&motor, -(error * RoundSpeed), (error * RoundSpeed));
 				}
 			}
 			if (command[StageIndex] == 14) {
-				//StageSkip
-				int offset = (3-Goal)*3;
-				StageIndex+=offset+1;
-			
+				// StageSkip
+				int offset = (3 - Goal) * 3;
+				StageIndex += offset + 1;
 			}
 			lastStageTime = nowTime;
 		}
