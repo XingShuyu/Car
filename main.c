@@ -70,7 +70,7 @@ volatile uint8_t recv0_flag = 0;
 uint8_t key_last = 0;
 
 // MPU相关
-MPU6050_RawData_t MPU6050Data;
+MPU6050_Data_t MPU6050Data;
 float nowAngle = 0;
 
 // 灰度循迹地址
@@ -133,8 +133,11 @@ int main(void) {
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
-	// 初始化 MPU6050（默认 ±2g / ±250°/s）
-	MPU6050_Init();
+	// 初始化 MPU6050（默认 ±2g / ±250°/s），静止校准陀螺仪零偏
+	if (MPU6050_Init()) {
+		MPU6050_SetFilter(0.35f, 0.15f, 0.0f);
+		MPU6050_CalibrateGyro(500);
+	}
 	// buzzer_beep();
 	// 获取启动时间tick
 	startTime = getNowMs();
@@ -491,8 +494,9 @@ int main(void) {
 					StageIndex++;
 				} else {
 					float t = getTimeMs(getNowMs(), lastStageTime);
-					MPU6050_ReadGyroRaw(&MPU6050Data);
-					nowAngle += MPU6050Data.z * t / 1000.0;
+					if (MPU6050_ReadAllCalibrated(&MPU6050Data)) {
+						nowAngle += MPU6050Data.gz * t / 1000.0f;
+					}
 					char str[16];
 					sprintf(str, "ang:%.2f", nowAngle);
 					Display_ShowString(0, 0, str);
@@ -689,7 +693,7 @@ void UART_MAIXCAM_INST_IRQHandler(void) {
 // 计算姿态角和位移的函数(dt单位秒)
 void process_imu_for_horizontal_motion(float dt) {
 	MPU6050_Data_t data;
-	if (!MPU6050_ReadAll(&data)) {
+	if (!MPU6050_ReadAllCalibrated(&data)) {
 		printf("MPU6050 read error\n");
 		return;
 	}

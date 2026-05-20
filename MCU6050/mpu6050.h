@@ -1,7 +1,7 @@
 /**
  * @file    mpu6050.h
  * @brief   MPU6050 Driver for TI MSPM0G3507 (TI CCS)
- * @details Uses MSPM0 DriverLib I2C peripheral (I2C1)
+ * @details Uses MSPM0 DriverLib I2C peripheral.
  *
  * Wiring:
  *   MPU6050 SDA  --> MSPM0G3507 PB3 (I2C1_SDA)
@@ -103,6 +103,12 @@ typedef struct {
 } MPU6050_Data_t;
 
 typedef struct {
+    float x;    /* Gyro X offset [°/s] */
+    float y;    /* Gyro Y offset [°/s] */
+    float z;    /* Gyro Z offset [°/s] */
+} MPU6050_GyroOffset_t;
+
+typedef struct {
     MPU6050_GyroFS_t  gyroFS;
     MPU6050_AccelFS_t accelFS;
     uint8_t           dlpfConfig;   /* Digital Low Pass Filter 0~6 */
@@ -121,13 +127,13 @@ bool MPU6050_WhoAmI(uint8_t *id);
 bool MPU6050_SetGyroFS(MPU6050_GyroFS_t fs);
 bool MPU6050_SetAccelFS(MPU6050_AccelFS_t fs);
 
-/* 原始数据读取 */
+/* 原始数据读取：返回寄存器原始值，不做比例换算、零偏或滤波 */
 bool MPU6050_ReadAccelRaw(MPU6050_RawData_t *out);
 bool MPU6050_ReadGyroRaw(MPU6050_RawData_t *out);
 bool MPU6050_ReadTempRaw(int16_t *out);
-bool MPU6050_ReadAll(MPU6050_Data_t *out);
 
-/* ---------- 新增零偏校准相关函数 ---------- */
+/* 读取并换算为物理量：加速度[g]、角速度[°/s]、温度[°C] */
+bool MPU6050_ReadAll(MPU6050_Data_t *out);
 
 /**
  * @brief 校准陀螺仪零偏（静止状态下调用）
@@ -138,7 +144,7 @@ bool MPU6050_ReadAll(MPU6050_Data_t *out);
 bool MPU6050_CalibrateGyro(uint16_t samples);
 
 /**
- * @brief 获取当前陀螺仪零偏值（单位：°/s）
+ * @brief 获取当前陀螺仪零偏值
  * @param x 输出 X 轴零偏
  * @param y 输出 Y 轴零偏
  * @param z 输出 Z 轴零偏
@@ -154,17 +160,25 @@ void MPU6050_GetGyroZero(float *x, float *y, float *z);
 void MPU6050_SetGyroZero(float x, float y, float z);
 
 /**
- * @brief 读取所有数据，并返回已减去陀螺仪零偏的角速度值
- * @param out 输出数据结构（加速度、温度、校准后的角速度）
+ * @brief 读取所有数据，并对角速度执行零偏扣除、死区和低通滤波
+ * @param out 输出数据结构
  * @return true 成功，false 失败
  */
 bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out);
 
 /**
- * @brief 设置低通滤波 + 死区去底噪参数
+ * @brief 设置低通滤波和死区参数
  * @param alpha    低通系数 (0.0~1.0), 越小越平滑但响应越慢 (建议 0.05~0.2)
- * @param deadzone 死区阈值, |值| < 阈值时归零 (建议 0.1~1.0, 单位: °/s / g)
+ * @param deadzone 陀螺仪死区阈值 [°/s]，保留旧接口兼容
  */
 void MPU6050_SetFilterParam(float alpha, float deadzone);
+
+/**
+ * @brief 设置低通滤波和分离的陀螺仪/加速度死区
+ * @param alpha           低通系数 (0.0~1.0)，1.0 表示不平滑
+ * @param gyroDeadzoneDps 角速度死区 [°/s]
+ * @param accelDeadzoneG  加速度死区 [g]
+ */
+void MPU6050_SetFilter(float alpha, float gyroDeadzoneDps, float accelDeadzoneG);
 
 #endif /* MPU6050_H_ */
