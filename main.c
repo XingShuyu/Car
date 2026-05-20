@@ -76,8 +76,8 @@ float nowAngle = 0;
 // 灰度循迹地址
 bool grayscale[8];
 
-volatile float motorRightSpeed = 0; //	速度(m/s)
-volatile float motorLeftSpeed = 0;	//	速度(m/s)
+// volatile float motorRightSpeed = 0; //	速度(m/s)
+// volatile float motorLeftSpeed = 0;	//	速度(m/s)
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
@@ -115,7 +115,6 @@ int main(void) {
 	 */
 	setvbuf(stdout, NULL, _IONBF, 0);
 	TimeBase_Init();
-	MPU6050_Init();
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 
@@ -184,10 +183,11 @@ int main(void) {
 			motorRightCount = 0;
 			__enable_irq();
 
-			motorRightSpeed =
-				(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-			motorLeftSpeed =
-				(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+			// motorRightSpeed =
+			// 	(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
+			// 	NewMotor_EncoderDeltaToWheelSpeedMmps()
+			// motorLeftSpeed =
+			// 	(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
 			leftDistance += leftCountSnapshot;
 			rightDistance += rightCountSnapshot;
 
@@ -196,7 +196,11 @@ int main(void) {
 		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
-			if (command[StageIndex] == 1) {
+			int16_t stage = command[StageIndex];
+			bool shouldStopRun = false;
+
+			switch (stage) {
+			case StageRush: {
 				// 猛冲一下
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
@@ -227,8 +231,9 @@ int main(void) {
 					StageFlag = 0;
 					StageIndex++;
 				}
+				break;
 			}
-			if (command[StageIndex] == 2) {
+			case StageRight: {
 				// StageRight
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
@@ -245,8 +250,9 @@ int main(void) {
 					StageFlag = 0;
 					StageIndex++;
 				}
+				break;
 			}
-			if (command[StageIndex] == 3) {
+			case StageRightRound: {
 				// StageRightRound
 				float base = 1.0;
 				if (StageFlag == 0) {
@@ -267,8 +273,9 @@ int main(void) {
 				}
 				NewMotorSpeedCtrl_SetTargetWheelMmps(
 					&motor, (base * RoundSpeed), -(base * RoundSpeed));
+				break;
 			}
-			if (command[StageIndex] == 4) {
+			case StageLeft: {
 				// StageLeft
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
@@ -285,8 +292,9 @@ int main(void) {
 					StageFlag = 0;
 					StageIndex++;
 				}
+				break;
 			}
-			if (command[StageIndex] == 5) {
+			case StageLeftRound: {
 				// StageLeftRound
 				float base = 1.0;
 				if (StageFlag == 0) {
@@ -307,8 +315,9 @@ int main(void) {
 				}
 				NewMotorSpeedCtrl_SetTargetWheelMmps(
 					&motor, -(base * RoundSpeed), (base * RoundSpeed));
+				break;
 			}
-			if (command[StageIndex] == 6) {
+			case StageCross: {
 				// StageCross
 				if (StageFlag == 0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed,
@@ -353,8 +362,9 @@ int main(void) {
 					StageFlag % 2 == 0) {
 					StageFlag++;
 				}
+				break;
 			}
-			if (command[StageIndex] == 7) {
+			case Stageultrasonic: {
 				// Stageultrasonic
 				// if (StageFlag == 0) {
 				// 	distance = 0.0;
@@ -373,8 +383,9 @@ int main(void) {
 				// 	StageFlag = 0;
 				// 	StageIndex = sizeof(command) / sizeof(int16_t) - 1;
 				// }
+				break;
 			}
-			if (command[StageIndex] == 8) {
+			case StageStartJudge: {
 				// StageStartJudge
 				if (Grayscale_Cross(grayscale, 1)) {
 					// 右直角, AD起点
@@ -387,8 +398,9 @@ int main(void) {
 					StageIndex++;
 				} else {
 				}
+				break;
 			}
-			if (command[StageIndex] == 9) {
+			case StageFinsih: {
 				// StageFinsih
 				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 				float irr = Grayscale_Line(&grayscalePid, grayscale);
@@ -401,17 +413,19 @@ int main(void) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					buzzer_beep();
-					break;
+					shouldStopRun = true;
 				}
+				break;
 			}
-			if (command[StageIndex] == 10) {
+			case StageBizz: {
 				// StageBizz
 				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 				buzzer_beep();
 				StageIndex++;
+				break;
 			}
-			if (command[StageIndex] == 11) {
+			case StageFake: {
 				// StageFake
 				if (_read_channel_stable(0) || _read_channel_stable(1) ||
 					_read_channel_stable(2) || _read_channel_stable(3) ||
@@ -421,8 +435,9 @@ int main(void) {
 				} else {
 					StageIndex++;
 				}
+				break;
 			}
-			if (command[StageIndex] == 12) {
+			case StageStop: {
 				// StageStop
 				// if (StageFlag == 0) {
 				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(
@@ -457,10 +472,11 @@ int main(void) {
 					NewMotor_Stop(NEWMOTOR_STOP_COAST);
 					buzzer_beep();
 					StageFlag = 0;
-					break;
+					shouldStopRun = true;
 				}
+				break;
 			}
-			if (command[StageIndex] == StageTurn145) {
+			case StageTurn145: {
 				if (StageFlag == 0) {
 					nowAngle = 0.0;
 					StageFlag++;
@@ -484,13 +500,21 @@ int main(void) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
 						&motor, -(error * RoundSpeed), (error * RoundSpeed));
 				}
+				break;
 			}
-			if (command[StageIndex] == 14) {
+			case StageSkip: {
 				// StageSkip
 				int offset = (3 - Goal) * 3;
 				StageIndex += offset + 1;
+				break;
+			}
+			default:
+				break;
 			}
 			lastStageTime = nowTime;
+			if (shouldStopRun) {
+				break;
+			}
 		}
 
 		// if (getTimeMs(nowTime, lastGrayscaleTime) > 50 &&
@@ -686,21 +710,21 @@ void buzzer_beep(void) {
 		delay_ms(100);
 	}
 }
-// 显示左右轮速度
-void Display_WheelSpeeds() {
-	char left_str[16], right_str[16];
+// // 显示左右轮速度
+// void Display_WheelSpeeds() {
+// 	char left_str[16], right_str[16];
 
-	// 格式化左轮速度字符串
-	sprintf(left_str, "L:%.2f m/s", motorLeftSpeed);
-	// 格式化右轮速度字符串
-	sprintf(right_str, "R:%.2f m/s", motorRightSpeed);
+// 	// 格式化左轮速度字符串
+// 	sprintf(left_str, "L:%.2f m/s", motorLeftSpeed);
+// 	// 格式化右轮速度字符串
+// 	sprintf(right_str, "R:%.2f m/s", motorRightSpeed);
 
-	// 在OLED上显示（左轮在上，右轮在下）
-	Display_ShowString(0, 0, left_str);
-	Display_ShowString(2, 0, right_str);
+// 	// 在OLED上显示（左轮在上，右轮在下）
+// 	Display_ShowString(0, 0, left_str);
+// 	Display_ShowString(2, 0, right_str);
 
-	// 可选：显示速度差
-	float speed_diff = fabs(motorLeftSpeed - motorRightSpeed);
-	sprintf(left_str, "Diff:%.2f m/s", speed_diff);
-	Display_ShowString(4, 0, left_str);
-}
+// 	// 可选：显示速度差
+// 	float speed_diff = fabs(motorLeftSpeed - motorRightSpeed);
+// 	sprintf(left_str, "Diff:%.2f m/s", speed_diff);
+// 	Display_ShowString(4, 0, left_str);
+// }

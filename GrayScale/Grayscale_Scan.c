@@ -179,11 +179,11 @@ float Grayscale_Line(PID *pid, bool *sensor_values) {
 bool Grayscale_Cross(bool *sensor_values, int status) {
 	Grayscale_Sensor_Read_All(sensor_values);
 	if (status == 2) {
-		return (sensor_values[0] == 0 &&sensor_values[4]>0&& sensor_values[6] > 0 &&
+		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
 				sensor_values[7] > 0 && sensor_values[5] > 0);
 	} else if (status == 1) {
 		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
-				sensor_values[2] > 0 &&sensor_values[3]>0&& sensor_values[7] == 0);
+				sensor_values[2] > 0 && sensor_values[7] == 0);
 	} else if (status == 0) {
 		return (sensor_values[2] > 0 && sensor_values[1] > 0 &&
 				sensor_values[3] > 0 && sensor_values[4] > 0 &&
