@@ -21,9 +21,9 @@ void Display_Init(void);
 void Display_Clear(void);
 
 /**
- * @brief 在指定位置显示字符串（支持 ASCII 32~126）
- * @param row    行号（0~7，每行 8 像素）
- * @param col    列号（0~20，每个字符宽 6 像素）
+ * @brief 在指定位置显示字符串（支持 ASCII 32 - 126）
+ * @param row    行号（0 - 7，每行 8 像素）
+ * @param col    列号（0 - 20，每个字符宽 6 像素）
  * @param str    要显示的字符串
  */
 void Display_ShowString(uint8_t row, uint8_t col, const char *str);

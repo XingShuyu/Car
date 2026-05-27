@@ -5,6 +5,7 @@
 
 #include "mpu6050.h"
 #include "ti/driverlib/dl_i2c.h"
+#include "BasicMicroLib/delay.h"
 #include <math.h>
 #include <stddef.h>
 
@@ -12,10 +13,17 @@
 #define MPU6050_RESET_DELAY_LOOPS      (100000u)
 #define MPU6050_CALIB_DELAY_LOOPS      (1000u)
 
+typedef struct {
+    float x;
+    float y;
+    float z;
+} MPU6050_AccelOffset_t;
+
 static float s_accelScale = 1.0f / 16384.0f;
 static float s_gyroScale = 1.0f / 131.0f;
 
 static MPU6050_GyroOffset_t s_gyroOffset = {0.0f, 0.0f, 0.0f};
+static MPU6050_AccelOffset_t s_accelOffset = {0.0f, 0.0f, 0.0f};
 static float s_filterAlpha = 1.0f;
 static float s_gyroDeadzoneDps = 0.05f;
 static float s_accelDeadzoneG = 0.0f;
@@ -192,6 +200,13 @@ static void apply_gyro_offset(MPU6050_Data_t *data)
     data->gz -= s_gyroOffset.z;
 }
 
+static void apply_accel_offset(MPU6050_Data_t *data)
+{
+    data->ax -= s_accelOffset.x;
+    data->ay -= s_accelOffset.y;
+    data->az -= s_accelOffset.z;
+}
+
 static float apply_deadzone(float value, float threshold)
 {
     if ((threshold > 0.0f) && (fabsf(value) < threshold)) {
@@ -324,6 +339,7 @@ bool MPU6050_InitWithConfig(const MPU6050_Config_t *cfg)
     }
 
     MPU6050_SetGyroZero(0.0f, 0.0f, 0.0f);
+    s_accelOffset = (MPU6050_AccelOffset_t){0};
     reset_filter_state();
     return true;
 }
@@ -416,36 +432,59 @@ bool MPU6050_ReadAll(MPU6050_Data_t *out)
 bool MPU6050_CalibrateGyro(uint16_t samples)
 {
     MPU6050_GyroOffset_t oldOffset = s_gyroOffset;
-    float sumX = 0.0f;
-    float sumY = 0.0f;
-    float sumZ = 0.0f;
-    uint16_t validSamples = 0u;
+    MPU6050_AccelOffset_t oldAccelOffset = s_accelOffset;
+    float gyroSumX = 0.0f;
+    float gyroSumY = 0.0f;
+    float gyroSumZ = 0.0f;
+    float accelSumX = 0.0f;
+    float accelSumY = 0.0f;
+    float accelSumZ = 0.0f;
+    uint16_t validGyroSamples = 0u;
+    uint16_t validAccelSamples = 0u;
 
     if (samples == 0u) {
         return false;
     }
 
     MPU6050_SetGyroZero(0.0f, 0.0f, 0.0f);
+    s_accelOffset = (MPU6050_AccelOffset_t){0};
 
     for (uint16_t i = 0u; i < samples; i++) {
         MPU6050_Data_t data;
-        if (MPU6050_ReadAll(&data)) {
-            sumX += data.gx;
-            sumY += data.gy;
-            sumZ += data.gz;
-            validSamples++;
+        if (MPU6050_ReadAll(&data)&&!(data.gx==0.0&&data.gy==0.0&&data.gz==0.0)) {
+            gyroSumX += data.gx;
+            gyroSumY += data.gy;
+            gyroSumZ += data.gz;
+            validGyroSamples++;
         }
-        delay_loop(MPU6050_CALIB_DELAY_LOOPS);
+        delay_ms(25);
+        // delay_loop(MPU6050_CALIB_DELAY_LOOPS);
     }
 
-    if (validSamples == 0u) {
+    for (uint16_t i = 0u; i < samples; i++) {
+        MPU6050_Data_t data;
+        if (MPU6050_ReadAll(&data)&&!(data.ax==0.0&&data.ay==0.0&&data.az==0.0)) {
+            accelSumX += data.ax;
+            accelSumY += data.ay;
+            accelSumZ += data.az;
+            validAccelSamples++;
+        }
+        delay_ms(25);
+        // delay_loop(MPU6050_CALIB_DELAY_LOOPS);
+    }
+
+    if ((validGyroSamples == 0u) || (validAccelSamples == 0u)) {
         s_gyroOffset = oldOffset;
+        s_accelOffset = oldAccelOffset;
         return false;
     }
 
-    s_gyroOffset.x = sumX / (float)validSamples;
-    s_gyroOffset.y = sumY / (float)validSamples;
-    s_gyroOffset.z = sumZ / (float)validSamples;
+    s_gyroOffset.x = gyroSumX / (float)validGyroSamples;
+    s_gyroOffset.y = gyroSumY / (float)validGyroSamples;
+    s_gyroOffset.z = gyroSumZ / (float)validGyroSamples;
+    s_accelOffset.x = accelSumX / (float)validAccelSamples;
+    s_accelOffset.y = accelSumY / (float)validAccelSamples;
+    s_accelOffset.z = accelSumZ / (float)validAccelSamples;
     reset_filter_state();
     return true;
 }
@@ -500,6 +539,7 @@ bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out)
     }
 
     apply_gyro_offset(out);
+    apply_accel_offset(out);
     out->gx = apply_deadzone(out->gx, s_gyroDeadzoneDps);
     out->gy = apply_deadzone(out->gy, s_gyroDeadzoneDps);
     out->gz = apply_deadzone(out->gz, s_gyroDeadzoneDps);

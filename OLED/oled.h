@@ -1,28 +1,34 @@
 /**
  * @file oled.h
- * @brief OLED 商家库文件（适配层）
- * @note 此文件仅包含绘图逻辑，底层 I2C 依赖于 display.c
+ * @brief SSD1306 OLED low-level driver.
+ *
+ * This module owns the SSD1306 I2C transfer logic and the framebuffer.
+ * Higher-level text formatting is implemented in display.c.
  */
 
-#ifndef __OLED_H
-#define __OLED_H
+#ifndef OLED_H_
+#define OLED_H_
 
+#include <stdbool.h>
 #include <stdint.h>
 
-// ----------------- 屏幕参数配置 -----------------
-// 请根据商家资料修改此处，通常为 128x64 或 128x32
-#define OLED_WIDTH  128
-#define OLED_HEIGHT 64
+#define OLED_WIDTH      128u
+#define OLED_HEIGHT     64u
+#define OLED_PAGE_COUNT (OLED_HEIGHT / 8u)
+#define OLED_BUFFER_SIZE (OLED_WIDTH * OLED_PAGE_COUNT)
 
-// ----------------- 绘图接口 -----------------
-// 这些函数由商家代码实现，用于操作显存
-void OLED_DrawPoint(uint8_t x, uint8_t y); // 画点
-void OLED_DrawCircle(uint8_t x0, uint8_t y0, uint8_t r); // 画圆
-void OLED_DrawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2); // 画线
+bool OLED_Init(void);
+bool OLED_IsReady(void);
+void OLED_Clear(void);
+bool OLED_Update(void);
+bool OLED_UpdatePage(uint8_t page);
 
-// ----------------- 兼容接口 -----------------
-// 这些宏或函数是为了让商家代码能“看到”display.c 中的显存
-// 必须与 display.c 中的 framebuffer 定义一致
-extern uint8_t framebuffer[]; // 引用 display.c 中的显存
+void OLED_SetPixel(uint8_t x, uint8_t y, bool on);
+void OLED_DrawPoint(uint8_t x, uint8_t y);
+void OLED_ClearPoint(uint8_t x, uint8_t y);
+void OLED_DrawLine(uint8_t x1, uint8_t y1, uint8_t x2, uint8_t y2);
+void OLED_DrawCircle(uint8_t x0, uint8_t y0, uint8_t r);
 
-#endif
+uint8_t *OLED_GetBuffer(void);
+
+#endif /* OLED_H_ */

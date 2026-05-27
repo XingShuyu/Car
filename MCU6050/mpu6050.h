@@ -65,7 +65,7 @@
 /* ------------------------------------------------------------------ */
 /*  Configuration Values                                               */
 /* ------------------------------------------------------------------ */
-#define MPU6050_WHO_AM_I_VAL        0x68u
+#define MPU6050_WHO_AM_I_VAL        0x70u
 
 /* Gyroscope full-scale range */
 typedef enum {
@@ -136,7 +136,7 @@ bool MPU6050_ReadTempRaw(int16_t *out);
 bool MPU6050_ReadAll(MPU6050_Data_t *out);
 
 /**
- * @brief 校准陀螺仪零偏（静止状态下调用）
+ * @brief 校准陀螺仪和加速度计零偏（静止状态下调用）
  * @param samples 采样次数，建议 500~2000
  * @return true 成功，false 失败
  * @note 校准期间必须保持 MPU6050 绝对静止
@@ -160,7 +160,7 @@ void MPU6050_GetGyroZero(float *x, float *y, float *z);
 void MPU6050_SetGyroZero(float x, float y, float z);
 
 /**
- * @brief 读取所有数据，并对角速度执行零偏扣除、死区和低通滤波
+ * @brief 读取所有数据，并对加速度/角速度执行零偏扣除、死区和低通滤波
  * @param out 输出数据结构
  * @return true 成功，false 失败
  */

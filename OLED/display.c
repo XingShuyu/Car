@@ -1,46 +1,19 @@
 /**
- * @file    display.c
- * @brief   SSD1306 OLED 驱动实现（使用 DriverLib 标准 I2C API）
- * @note    依赖 SysConfig 生成的 I2C2 实例（I2C_LED_display）
- *
- * 修复清单：
- *  1. I2C 地址从 0x78（8位） 改为 0x3C（7位），DriverLib 会自动处理 R/W 移位
- *  2. i2c_write_bytes：先启动传输再持续填充 FIFO，防止超出 8 字节 FIFO 深度丢数据
- *  3. i2c_write_data：去掉 malloc，改用静态缓冲区，嵌入式环境安全
- *  4. 补全 96 个 ASCII 可打印字符的完整 6x8 点阵字库（0x20 ~ 0x7E）
- *  5. 实现了头文件中声明但未定义的 Display_Update()
- *  6. i2c_wait_done：每次调用前先清除上次遗留的 STOP/NACK 标志，避免误判
+ * @file display.c
+ * @brief Text display helpers built on top of the SSD1306 OLED driver.
  */
 
 #include "display.h"
-#include "ti_msp_dl_config.h"
-#include <string.h>
+#include "oled.h"
 #include <stdio.h>
+#include <string.h>
 
-/* ------------------------------------------------------------------ */
-/*  显示屏参数                                                          */
-/* ------------------------------------------------------------------ */
-/* 修复1：使用 7 位 I2C 地址（DriverLib 内部会左移并附加 R/W 位）      */
-/*        原值 0x78 是 8 位格式，会导致访问错误地址，所有操作均 NACK    */
-#define OLED_ADDR        0x3C
-#define OLED_WIDTH       128
-#define OLED_HEIGHT      64
-#define OLED_PAGE_NUM    8        /* 64 / 8 = 8 页 */
+#define DISPLAY_FONT_WIDTH  6u
+#define DISPLAY_FONT_HEIGHT 8u
+#define DISPLAY_MAX_COL     (OLED_WIDTH / DISPLAY_FONT_WIDTH)
+#define DISPLAY_MAX_ROW     (OLED_HEIGHT / DISPLAY_FONT_HEIGHT)
 
-/* I2C 实例 */
-#define DISPLAY_I2C_INST I2C_LED_display_INST
-#define I2C_TIMEOUT_MS   1000u
-
-/* ------------------------------------------------------------------ */
-/*  内部显存缓冲区                                                      */
-/* ------------------------------------------------------------------ */
-static uint8_t framebuffer[OLED_WIDTH * OLED_PAGE_NUM]; /* 128 × 8 = 1024 字节 */
-
-/* ------------------------------------------------------------------ */
-/*  修复4：完整 6×8 点阵字库，覆盖 ASCII 0x20（空格）~ 0x7E（~）      */
-/*  共 95 个字符，每个字符 6 列×8 行，列优先存储                        */
-/* ------------------------------------------------------------------ */
-static const uint8_t font6x8[][6] = {
+static const uint8_t s_font6x8[][DISPLAY_FONT_WIDTH] = {
     {0x00,0x00,0x00,0x00,0x00,0x00}, /* 0x20  (space) */
     {0x00,0x00,0x5F,0x00,0x00,0x00}, /* 0x21  ! */
     {0x00,0x07,0x00,0x07,0x00,0x00}, /* 0x22  " */
@@ -138,230 +111,109 @@ static const uint8_t font6x8[][6] = {
     {0x08,0x08,0x2A,0x1C,0x08,0x00}, /* 0x7E  ~ */
 };
 
-/* ------------------------------------------------------------------ */
-/*  I2C 底层函数                                                        */
-/* ------------------------------------------------------------------ */
-
-static bool i2c_wait_idle(void)
+static uint8_t printable_char_index(char ch)
 {
-    uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
-    while (DL_I2C_getControllerStatus(DISPLAY_I2C_INST) &
-           DL_I2C_CONTROLLER_STATUS_BUSY_BUS) {
-        if (--timeout == 0u) return false;
-    }
-    return true;
-}
+    uint8_t value = (uint8_t)ch;
 
-static bool i2c_wait_done(void)
-{
-    uint32_t timeout = I2C_TIMEOUT_MS * 1000u;
-    while (!DL_I2C_getRawInterruptStatus(
-                DISPLAY_I2C_INST,
-                DL_I2C_INTERRUPT_CONTROLLER_STOP |
-                DL_I2C_INTERRUPT_CONTROLLER_NACK)) {
-        if (--timeout == 0u) return false;
-    }
-    if (DL_I2C_getRawInterruptStatus(DISPLAY_I2C_INST,
-            DL_I2C_INTERRUPT_CONTROLLER_NACK)) {
-        DL_I2C_clearInterruptStatus(DISPLAY_I2C_INST,
-            DL_I2C_INTERRUPT_CONTROLLER_NACK |
-            DL_I2C_INTERRUPT_CONTROLLER_STOP);
-        return false;
-    }
-    DL_I2C_clearInterruptStatus(DISPLAY_I2C_INST,
-        DL_I2C_INTERRUPT_CONTROLLER_STOP);
-    return true;
-}
-
-/**
- * 修复2：正确的分段 FIFO 写入流程
- *  - MSPM0 I2C TX FIFO 深度仅 8 字节
- *  - 原代码先填满 FIFO 再启动，超出 8 字节的数据全部丢失
- *  - 正确做法：先填到 FIFO 快满，启动传输，然后在传输过程中持续补充
- */
-static bool i2c_write_bytes(uint8_t *data, uint16_t len)
-{
-    if (!i2c_wait_idle()) return false;
-
-    /* 修复6：每次传输前清除上次遗留的标志，避免 i2c_wait_done 误判 */
-    DL_I2C_clearInterruptStatus(DISPLAY_I2C_INST,
-        DL_I2C_INTERRUPT_CONTROLLER_NACK |
-        DL_I2C_INTERRUPT_CONTROLLER_STOP);
-    DL_I2C_flushControllerTXFIFO(DISPLAY_I2C_INST);
-
-    /* 先尽量填入不超过 FIFO 深度的数据（MSPM0 FIFO 深度 = 8） */
-    uint16_t sent = 0;
-    while (sent < len &&
-           !DL_I2C_isControllerTXFIFOFull(DISPLAY_I2C_INST)) {
-        DL_I2C_fillControllerTXFIFO(DISPLAY_I2C_INST, &data[sent], 1);
-        sent++;
+    if ((value < 0x20u) || (value > 0x7Eu)) {
+        value = 0x20u;
     }
 
-    /* 启动传输，告知硬件总字节数 */
-    DL_I2C_startControllerTransfer(
-        DISPLAY_I2C_INST,
-        OLED_ADDR,                         /* 修复1：7 位地址 0x3C */
-        DL_I2C_CONTROLLER_DIRECTION_TX,
-        len);
-
-    /* 传输进行中，持续补充 FIFO */
-    while (sent < len) {
-        while (DL_I2C_isControllerTXFIFOFull(DISPLAY_I2C_INST)) {
-            /* 等待 FIFO 有空位 */
-        }
-        DL_I2C_fillControllerTXFIFO(DISPLAY_I2C_INST, &data[sent], 1);
-        sent++;
-    }
-
-    return i2c_wait_done();
-}
-
-static bool i2c_write_cmd(uint8_t cmd)
-{
-    uint8_t buf[2] = {0x00, cmd}; /* 控制字节 0x00 = 命令模式 */
-    return i2c_write_bytes(buf, 2);
-}
-
-/**
- * 修复3：去掉 malloc，改用静态缓冲区
- *  - 嵌入式 MCU heap 极小，malloc 在中断/循环中极易失败
- *  - 静态缓冲区大小 = 控制字节(1) + 最大数据长度(128)
- */
-static bool i2c_write_data(uint8_t *data, uint16_t len)
-{
-    static uint8_t buf[OLED_WIDTH + 1]; /* 栈上静态缓冲，线程安全够用 */
-    if (len > OLED_WIDTH) return false;
-    buf[0] = 0x40; /* 控制字节 0x40 = 数据模式 */
-    memcpy(buf + 1, data, len);
-    return i2c_write_bytes(buf, (uint16_t)(len + 1));
-}
-
-/* ------------------------------------------------------------------ */
-/*  OLED 硬件操作                                                       */
-/* ------------------------------------------------------------------ */
-
-static void oled_write_cmd(uint8_t cmd)
-{
-    i2c_write_cmd(cmd);
-}
-
-static void oled_set_page(uint8_t page, uint8_t col)
-{
-    oled_write_cmd(0xB0 + page);
-    oled_write_cmd(0x00 + (col & 0x0F));
-    oled_write_cmd(0x10 + ((col >> 4) & 0x0F));
-}
-
-/* ------------------------------------------------------------------ */
-/*  公开 API                                                            */
-/* ------------------------------------------------------------------ */
-
-void Display_Init(void)
-{
-    /* 等待 I2C 上电稳定 */
-    for (volatile int i = 0; i < 10000; i++);
-
-    /* SSD1306 标准初始化序列 */
-    oled_write_cmd(0xAE);               /* 关闭显示 */
-    oled_write_cmd(0xD5); oled_write_cmd(0x80); /* 振荡频率/时钟分频 */
-    oled_write_cmd(0xA8); oled_write_cmd(0x3F); /* 复用率 64 */
-    oled_write_cmd(0xD3); oled_write_cmd(0x00); /* 显示偏移 0 */
-    oled_write_cmd(0x40);               /* 起始行 0 */
-    oled_write_cmd(0x8D); oled_write_cmd(0x14); /* 电荷泵使能 */
-    oled_write_cmd(0x20); oled_write_cmd(0x00); /* 水平寻址模式 */
-    oled_write_cmd(0xA1);               /* 段重映射（SEG0→127） */
-    oled_write_cmd(0xC8);               /* COM 扫描方向反转 */
-    oled_write_cmd(0xDA); oled_write_cmd(0x12); /* COM 引脚配置 */
-    oled_write_cmd(0x81); oled_write_cmd(0xCF); /* 对比度 */
-    oled_write_cmd(0xD9); oled_write_cmd(0xF1); /* 预充电周期 */
-    oled_write_cmd(0xDB); oled_write_cmd(0x40); /* VCOM 电压 */
-    oled_write_cmd(0xA4);               /* 输出跟随 RAM */
-    oled_write_cmd(0xA6);               /* 正常显示（非反色） */
-    oled_write_cmd(0xAF);               /* 开启显示 */
-
-    Display_Clear();
-}
-
-void Display_Clear(void)
-{
-    memset(framebuffer, 0x00, sizeof(framebuffer));
-    for (uint8_t page = 0; page < OLED_PAGE_NUM; page++) {
-        oled_set_page(page, 0);
-        i2c_write_data(&framebuffer[page * OLED_WIDTH], OLED_WIDTH);
-    }
-}
-
-/* 修复5：实现头文件声明的 Display_Update()，原来缺失导致链接报错 */
-void Display_Update(void)
-{
-    for (uint8_t page = 0; page < OLED_PAGE_NUM; page++) {
-        oled_set_page(page, 0);
-        i2c_write_data(&framebuffer[page * OLED_WIDTH], OLED_WIDTH);
-    }
-}
-
-/* ------------------------------------------------------------------ */
-/*  绘图函数（内部）                                                    */
-/* ------------------------------------------------------------------ */
-
-static void draw_pixel(uint8_t x, uint8_t y, uint8_t color)
-{
-    if (x >= OLED_WIDTH || y >= OLED_HEIGHT) return;
-    uint16_t index = x + (y / 8) * OLED_WIDTH;
-    if (color)
-        framebuffer[index] |=  (uint8_t)(1u << (y % 8));
-    else
-        framebuffer[index] &= ~(uint8_t)(1u << (y % 8));
+    return (uint8_t)(value - 0x20u);
 }
 
 static void draw_char(uint8_t x, uint8_t y, char ch)
 {
-    /* 不可打印字符用空格替代 */
-    if ((uint8_t)ch < 0x20 || (uint8_t)ch > 0x7E) ch = 0x20;
-    const uint8_t *glyph = font6x8[(uint8_t)ch - 0x20];
-    for (uint8_t i = 0; i < 6; i++) {
-        uint8_t line = glyph[i];
-        for (uint8_t j = 0; j < 8; j++) {
-            if (line & (1u << j))
-                draw_pixel(x + i, y + j, 1);
-            else
-                draw_pixel(x + i, y + j, 0);
+    const uint8_t *glyph = s_font6x8[printable_char_index(ch)];
+
+    for (uint8_t col = 0u; col < DISPLAY_FONT_WIDTH; col++) {
+        uint8_t line = glyph[col];
+        for (uint8_t bit = 0u; bit < DISPLAY_FONT_HEIGHT; bit++) {
+            OLED_SetPixel((uint8_t)(x + col), (uint8_t)(y + bit),
+                          (line & (1u << bit)) != 0u);
         }
     }
 }
 
-/* ------------------------------------------------------------------ */
-/*  公开显示函数                                                        */
-/* ------------------------------------------------------------------ */
+void Display_Init(void)
+{
+    (void)OLED_Init();
+}
+
+void Display_Clear(void)
+{
+    if (!OLED_IsReady()) {
+        return;
+    }
+
+    OLED_Clear();
+    (void)OLED_Update();
+}
+
+void Display_Update(void)
+{
+    if (!OLED_IsReady()) {
+        return;
+    }
+
+    (void)OLED_Update();
+}
 
 void Display_ShowString(uint8_t row, uint8_t col, const char *str)
 {
-    uint8_t x = col * 6;
-    uint8_t y = row * 8;
-    while (*str) {
-        if (x + 6 > OLED_WIDTH) { /* 自动换行 */
-            x = 0;
-            y += 8;
-            if (y >= OLED_HEIGHT) break;
-        }
-        draw_char(x, y, *str++);
-        x += 6;
+    uint8_t x;
+    uint8_t y;
+    uint8_t firstPage;
+    uint8_t lastPage;
+
+    if (!OLED_IsReady() || (str == NULL) ||
+        (row >= DISPLAY_MAX_ROW) || (col >= DISPLAY_MAX_COL)) {
+        return;
     }
-    Display_Update();
+
+    x = (uint8_t)(col * DISPLAY_FONT_WIDTH);
+    y = (uint8_t)(row * DISPLAY_FONT_HEIGHT);
+    firstPage = row;
+    lastPage = row;
+
+    while (*str != '\0') {
+        if (x + DISPLAY_FONT_WIDTH > OLED_WIDTH) {
+            x = 0u;
+            y = (uint8_t)(y + DISPLAY_FONT_HEIGHT);
+            if (y >= OLED_HEIGHT) {
+                break;
+            }
+            lastPage = (uint8_t)(y / DISPLAY_FONT_HEIGHT);
+        }
+
+        draw_char(x, y, *str);
+        str++;
+        x = (uint8_t)(x + DISPLAY_FONT_WIDTH);
+    }
+
+    for (uint8_t page = firstPage; page <= lastPage; page++) {
+        (void)OLED_UpdatePage(page);
+    }
 }
 
 void Display_ShowSpeed(float speed)
 {
-    char buf[24];
-    snprintf(buf, sizeof(buf), "Speed:%.1f cm/s", speed);
+    char buffer[24];
+
+    snprintf(buffer, sizeof(buffer), "Speed:%.1f cm/s", speed);
     Display_Clear();
-    Display_ShowString(0, 0, buf);
+    Display_ShowString(0u, 0u, buffer);
 }
 
 void Display_ShowValue(const char *label, float value)
 {
-    char buf[32];
-    snprintf(buf, sizeof(buf), "%s:%.2f", label, value);
+    char buffer[32];
+
+    if (label == NULL) {
+        label = "";
+    }
+
+    snprintf(buffer, sizeof(buffer), "%s:%.2f", label, value);
     Display_Clear();
-    Display_ShowString(0, 0, buf);
+    Display_ShowString(0u, 0u, buffer);
 }

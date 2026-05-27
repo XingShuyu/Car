@@ -78,6 +78,7 @@ bool grayscale[8];
 
 // volatile float motorRightSpeed = 0; //	速度(m/s)
 // volatile float motorLeftSpeed = 0;	//	速度(m/s)
+NewMotor_SpeedCtrl motor;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
@@ -88,46 +89,35 @@ void buzzer_beep(void);
 
 int main(void) {
 	//--------------------------------------
-	//                 初始化
+	//                初始化
 	//--------------------------------------
-
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+	//---------------中断使能----------------
+
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
+	//--------------模块初始化---------------
 	Ultrasonic_Init(); // 初始化超声波函数
-	USART_Init();	   // 使能UART中断（接收依赖此步骤）
 
-	// 初始化显示屏
-	Display_Init();
-	// 初始化maixcam
-	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN);
-	// 可选：开机显示欢迎信息
-	Display_ShowString(0, 0, "Car Ready");
-	delay_ms(2000);
-	Display_Clear();
-
-	/*
-	 * 修改2（最关键）：必须同时启动两个定时器！
-	 * 根据你的 SysConfig，左电机绑定了 TIMG8，右电机绑定了 TIMG6。
-	 * 如果宏名字报错，请去 ti_msp_dl_config.h 里搜索 TIMG 找到准确的名字
-	 * (也有可能被重命名为 PWM_MotorLeft_INST 等，取决于你SysConfig的命名)
-	 */
+	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
-	TimeBase_Init();
-	DL_TimerG_startCounter(MotorLeft_INST);
-	DL_TimerG_startCounter(MotorRight_INST);
 
-	// 打印启动信息
-	printf("MSPM0G3507 D157B Motor Test Start!\r\n");
-	// // 使能云台
-	// Emm_Init(1);
-	// delay_ms(10);
-	// Emm_Init(2);
-	// delay_ms(10);
+	Display_Init(); // 初始化显示屏
+
+	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN); // 初始化maixcam
+
+	TimeBase_Init(); // 初始化计时器
+
+	// 使能云台
+	Emm_Init(1);
+	delay_ms(10);
+	Emm_Init(2);
+	delay_ms(10);
 
 	// 电机初始化
-	NewMotor_SpeedCtrl motor;
+	DL_TimerG_startCounter(MotorLeft_INST);
+	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.03f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
@@ -135,17 +125,18 @@ int main(void) {
 
 	// 初始化 MPU6050（默认 ±2g / ±250°/s），静止校准陀螺仪零偏
 	if (MPU6050_Init()) {
-		MPU6050_SetFilter(0.35f, 0.15f, 0.0f);
-		MPU6050_CalibrateGyro(500);
+		MPU6050_SetFilter(0.35f, 0.1f, 0.01f);
 	}
 	// buzzer_beep();
 	// 获取启动时间tick
+	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
+	delay_ms(2000);
+	Display_Clear();
+	MPU6050_CalibrateGyro(20);
 	startTime = getNowMs();
 	// int TempIndex = 0;
 	TextIndex = 0;
 	while (getTimeMs(getNowMs(), startTime) < 3000) {
-
-		// uint8_t key_curr = DL_GPIO_readPins(key_PORT, key_PIN_B23_PIN);
 		char str[8];
 		sprintf(str, "set: %d", TextIndex);
 		Display_ShowString(0, 0, str);
@@ -155,7 +146,6 @@ int main(void) {
 		TextIndex = 0;
 		startTime = getNowMs();
 		while (getTimeMs(getNowMs(), startTime) < 3000) {
-			// uint8_t key_curr = DL_GPIO_readPins(key_PORT, key_PIN_B23_PIN);
 			char str[8];
 			sprintf(str, "goal: %d", TextIndex);
 			Display_ShowString(0, 0, str);
@@ -163,9 +153,6 @@ int main(void) {
 		Goal = TextIndex;
 	}
 	startTime = getNowMs();
-	// Display_ShowString(0, 0, "Done");
-	// TempIndex /= 2;
-	// TextIndex += TempIndex;
 	buzzer_beep();
 	while (1) {
 		// 更新当前时间
@@ -185,18 +172,33 @@ int main(void) {
 			motorLeftCount = 0;
 			motorRightCount = 0;
 			__enable_irq();
-
-			// motorRightSpeed =
-			// 	(float)rightCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
-			// 	NewMotor_EncoderDeltaToWheelSpeedMmps()
-			// motorLeftSpeed =
-			// 	(float)leftCountSnapshot / 0.03 / 4 / 500 / 28 * 204.2;
 			leftDistance += leftCountSnapshot;
 			rightDistance += rightCountSnapshot;
 
 			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
 												   rightCountSnapshot);
 		}
+
+		MPU6050_ReadAllCalibrated(&MPU6050Data);
+		char str[21];
+		sprintf(str, "x%.2f y%.2f z%.2f", MPU6050Data.ax, MPU6050Data.ay,
+				MPU6050Data.az);
+		char str1[21];
+		sprintf(str1, "x%.2f y%.2f z%.2f", MPU6050Data.gx, MPU6050Data.gy,
+				MPU6050Data.gz);
+		char str2[21];
+		float x,y,z;
+		MPU6050_GetGyroZero(&x, &y, &z);
+		sprintf(str2, "x%.2f y%.2f z%.2f",x,y,z);
+		nowAngle+=MPU6050Data.gz*getTimeMs(nowTime, lastStageTime)/1000;
+		char str3[21];
+		sprintf(str3, "angle:%.2f",nowAngle);
+
+		Display_ShowString(0, 0, str);
+		Display_ShowString(1, 0, str1);
+		Display_ShowString(2, 0, str2);
+		Display_ShowString(3, 0, str3);
+
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			int16_t stage = command[StageIndex];
@@ -224,7 +226,7 @@ int main(void) {
 												  110.0) +
 								   0.2;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, 0.8*speedP * BaseSpeed,
+						&motor, 0.8 * speedP * BaseSpeed,
 						0.8 * speedP * BaseSpeed);
 				}
 				if (StageFlag <= 10 && StageFlag >= 2) {
