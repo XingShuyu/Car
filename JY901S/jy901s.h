@@ -78,6 +78,9 @@
 #define JY901S_REG_YAW        (0x3Fu)
 #define JY901S_REG_TEMP       (0x40u)
 
+/* CALSW command values. */
+#define JY901S_CALSW_ZERO_YAW (0x0004u)
+
 typedef struct {
     int16_t x;
     int16_t y;
@@ -124,7 +127,7 @@ uint8_t JY901S_ScanFirstAddress(void);
 bool JY901S_ReadRegister(uint8_t reg, uint16_t *value);
 bool JY901S_WriteRegister(uint8_t reg, uint16_t value);
 bool JY901S_ReadBytes(uint8_t startReg, uint8_t *buffer, uint8_t length);
-bool JY901S_ReadBytesStopMode(uint8_t startReg, uint8_t *buffer, uint8_t length);
+bool JY901S_ZeroYaw(void);
 
 bool JY901S_ReadRaw(JY901S_RawData_t *out);
 bool JY901S_ReadAll(JY901S_Data_t *out);
