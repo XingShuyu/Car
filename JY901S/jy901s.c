@@ -12,6 +12,7 @@
 #define JY901S_RETRY_COUNT       (3u)
 #define JY901S_RECOVERY_PULSES   (9u)
 #define JY901S_GPIO_DELAY_LOOPS  (320u)
+#define JY901S_UNLOCK_DELAY_LOOPS (32000u)
 
 #define JY901S_RAW_ACCEL_TO_G   (16.0f / 32768.0f)
 #define JY901S_RAW_GYRO_TO_DPS  (2000.0f / 32768.0f)
@@ -342,6 +343,11 @@ bool JY901S_Init(void)
 
 bool JY901S_ZeroYaw(void)
 {
+    if (!JY901S_WriteRegister(JY901S_REG_KEY, JY901S_KEY_UNLOCK)) {
+        return false;
+    }
+
+    delay_loop(JY901S_UNLOCK_DELAY_LOOPS);
     return JY901S_WriteRegister(JY901S_REG_CALSW, JY901S_CALSW_ZERO_YAW);
 }
 

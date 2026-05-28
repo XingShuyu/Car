@@ -170,6 +170,7 @@ int main(void) {
 	}
 	startTime = getNowMs();
 	buzzer_beep();
+	JY901S_ZeroYaw();
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();

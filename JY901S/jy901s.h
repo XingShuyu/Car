@@ -59,6 +59,7 @@
 #define JY901S_REG_IICADDR    (0x1Au)
 #define JY901S_REG_LEDOFF     (0x1Bu)
 #define JY901S_REG_GPSBAUD    (0x1Cu)
+#define JY901S_REG_KEY        (0x69u)
 
 #define JY901S_REG_YYMM       (0x30u)
 #define JY901S_REG_DDHH       (0x31u)
@@ -80,6 +81,9 @@
 
 /* CALSW command values. */
 #define JY901S_CALSW_ZERO_YAW (0x0004u)
+
+/* Write KEY before changing configuration or starting calibration commands. */
+#define JY901S_KEY_UNLOCK     (0xB588u)
 
 typedef struct {
     int16_t x;
