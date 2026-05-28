@@ -41,8 +41,10 @@ Main/
 │   ├── grayscale_sensor.h / .c     # 传感器底层读取 (8通道CD4051模拟开关)
 │   └── Grayscale_Scan.h / .c       # 循线算法 + 十字/直角判断 (Grayscale_Line, Grayscale_Cross)
 │
-├── MCU6050/                        # IMU惯性测量
-│   ├── mpu6050.h / .c              # MPU6050 I2C驱动 (含校准、低通滤波、零偏补偿)
+├── IMU/                            # IMU惯性测量
+│   ├── imu.h / imu_data.h          # 统一IMU入口与标准数据结构
+│   ├── MPU6050/mpu6050.h / .c      # MPU6050 I2C驱动 (含校准、低通滤波、零偏补偿)
+│   └── JY901S/jy901s.h / .c        # JY901S/WT901 I2C驱动
 │
 ├── ultrasonic/                     # 超声波测距
 │   └── ultrasonic.h / .c           # HC-SR04驱动 (Ultrasonic_Init, Ultrasonic_GetDistance)
@@ -139,7 +141,10 @@ enum Stage {
 - `Grayscale_OnlineNum(sensor_values)`: 返回在线传感器数量
 - 传感器权重: `{-3.0, -2.7, -2.5, -2.0, 2.0, 2.5, 2.7, 3.0}` (0最左, 7最右)
 
-### 3.5 MPU6050 IMU (`MCU6050/`)
+### 3.5 IMU (`IMU/`)
+
+`IMU/imu_data.h` 定义统一数据结构 `JY901S_Data_t`，并提供 `IMU_Data_t` 与旧
+`MPU6050_Data_t` 兼容别名。上层业务代码优先使用 `JY901S_Data_t` 或 `IMU_Data_t`。
 
 完整MPU6050 I2C驱动，使用 `I2C0` (PA28=SDA, PA31=SCL)，地址 0x68:
 

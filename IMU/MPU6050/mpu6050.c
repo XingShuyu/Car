@@ -27,7 +27,7 @@ static MPU6050_AccelOffset_t s_accelOffset = {0.0f, 0.0f, 0.0f};
 static float s_filterAlpha = 1.0f;
 static float s_gyroDeadzoneDps = 0.05f;
 static float s_accelDeadzoneG = 0.0f;
-static MPU6050_Data_t s_prevFiltered = {0};
+static JY901S_Data_t s_prevFiltered = {0};
 static bool s_filterReady = false;
 
 static void delay_loop(uint32_t loops)
@@ -76,7 +76,7 @@ static float gyro_scale_from_fs(MPU6050_GyroFS_t fs)
 
 static void reset_filter_state(void)
 {
-    s_prevFiltered = (MPU6050_Data_t){0};
+    s_prevFiltered = (JY901S_Data_t){0};
     s_filterReady = false;
 }
 
@@ -193,14 +193,14 @@ static bool read_regs(uint8_t startReg, uint8_t *buffer, uint8_t length)
     return i2c_wait_stop_or_nack();
 }
 
-static void apply_gyro_offset(MPU6050_Data_t *data)
+static void apply_gyro_offset(JY901S_Data_t *data)
 {
     data->gx -= s_gyroOffset.x;
     data->gy -= s_gyroOffset.y;
     data->gz -= s_gyroOffset.z;
 }
 
-static void apply_accel_offset(MPU6050_Data_t *data)
+static void apply_accel_offset(JY901S_Data_t *data)
 {
     data->ax -= s_accelOffset.x;
     data->ay -= s_accelOffset.y;
@@ -215,7 +215,7 @@ static float apply_deadzone(float value, float threshold)
     return value;
 }
 
-static void apply_filter(MPU6050_Data_t *data)
+static void apply_filter(JY901S_Data_t *data)
 {
     if (s_filterAlpha >= 1.0f || !s_filterReady) {
         s_prevFiltered = *data;
@@ -393,7 +393,7 @@ bool MPU6050_ReadTempRaw(int16_t *out)
     return true;
 }
 
-bool MPU6050_ReadAll(MPU6050_Data_t *out)
+bool MPU6050_ReadAll(JY901S_Data_t *out)
 {
     uint8_t data[14];
     int16_t rawAx;
@@ -425,6 +425,12 @@ bool MPU6050_ReadAll(MPU6050_Data_t *out)
     out->gx = (float)rawGx * s_gyroScale;
     out->gy = (float)rawGy * s_gyroScale;
     out->gz = (float)rawGz * s_gyroScale;
+    out->hx = 0.0f;
+    out->hy = 0.0f;
+    out->hz = 0.0f;
+    out->roll = 0.0f;
+    out->pitch = 0.0f;
+    out->yaw = 0.0f;
     out->temp = (float)rawTemp / 340.0f + 36.53f;
     return true;
 }
@@ -450,7 +456,7 @@ bool MPU6050_CalibrateGyro(uint16_t samples)
     s_accelOffset = (MPU6050_AccelOffset_t){0};
 
     for (uint16_t i = 0u; i < samples; i++) {
-        MPU6050_Data_t data;
+        JY901S_Data_t data;
         if (MPU6050_ReadAll(&data)&&!(data.gx==0.0&&data.gy==0.0&&data.gz==0.0)) {
             gyroSumX += data.gx;
             gyroSumY += data.gy;
@@ -462,7 +468,7 @@ bool MPU6050_CalibrateGyro(uint16_t samples)
     }
 
     for (uint16_t i = 0u; i < samples; i++) {
-        MPU6050_Data_t data;
+        JY901S_Data_t data;
         if (MPU6050_ReadAll(&data)&&!(data.ax==0.0&&data.ay==0.0&&data.az==0.0)) {
             accelSumX += data.ax;
             accelSumY += data.ay;
@@ -529,7 +535,7 @@ void MPU6050_SetFilterParam(float alpha, float deadzone)
     MPU6050_SetFilter(alpha, deadzone, 0.0f);
 }
 
-bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out)
+bool MPU6050_ReadAllCalibrated(JY901S_Data_t *out)
 {
     if (out == NULL) {
         return false;

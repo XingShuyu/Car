@@ -15,6 +15,7 @@
 #ifndef JY901S_H_
 #define JY901S_H_
 
+#include "../imu_data.h"
 #include "ti_msp_dl_config.h"
 #include <stdbool.h>
 #include <stdint.h>
@@ -106,22 +107,6 @@ typedef struct {
     int16_t yaw;
     int16_t temp;
 } JY901S_RawData_t;
-
-typedef struct {
-    float ax;      /* Acceleration X [g] */
-    float ay;      /* Acceleration Y [g] */
-    float az;      /* Acceleration Z [g] */
-    float gx;      /* Angular velocity X [deg/s] */
-    float gy;      /* Angular velocity Y [deg/s] */
-    float gz;      /* Angular velocity Z [deg/s] */
-    float hx;      /* Magnetic field X, raw unit */
-    float hy;      /* Magnetic field Y, raw unit */
-    float hz;      /* Magnetic field Z, raw unit */
-    float roll;    /* Roll angle [deg] */
-    float pitch;   /* Pitch angle [deg] */
-    float yaw;     /* Yaw angle [deg] */
-    float temp;    /* Temperature [deg C] */
-} JY901S_Data_t;
 
 bool JY901S_Init(void);
 bool JY901S_IsConnected(void);

@@ -14,6 +14,7 @@
 #ifndef MPU6050_H_
 #define MPU6050_H_
 
+#include "../imu_data.h"
 #include "ti_msp_dl_config.h"
 #include <stdint.h>
 #include <stdbool.h>
@@ -93,16 +94,6 @@ typedef struct {
 } MPU6050_RawData_t;
 
 typedef struct {
-    float ax;   /* Acceleration X [g]    */
-    float ay;   /* Acceleration Y [g]    */
-    float az;   /* Acceleration Z [g]    */
-    float gx;   /* Angular velocity X [°/s] */
-    float gy;   /* Angular velocity Y [°/s] */
-    float gz;   /* Angular velocity Z [°/s] */
-    float temp; /* Temperature [°C]      */
-} MPU6050_Data_t;
-
-typedef struct {
     float x;    /* Gyro X offset [°/s] */
     float y;    /* Gyro Y offset [°/s] */
     float z;    /* Gyro Z offset [°/s] */
@@ -133,7 +124,7 @@ bool MPU6050_ReadGyroRaw(MPU6050_RawData_t *out);
 bool MPU6050_ReadTempRaw(int16_t *out);
 
 /* 读取并换算为物理量：加速度[g]、角速度[°/s]、温度[°C] */
-bool MPU6050_ReadAll(MPU6050_Data_t *out);
+bool MPU6050_ReadAll(JY901S_Data_t *out);
 
 /**
  * @brief 校准陀螺仪和加速度计零偏（静止状态下调用）
@@ -164,7 +155,7 @@ void MPU6050_SetGyroZero(float x, float y, float z);
  * @param out 输出数据结构
  * @return true 成功，false 失败
  */
-bool MPU6050_ReadAllCalibrated(MPU6050_Data_t *out);
+bool MPU6050_ReadAllCalibrated(JY901S_Data_t *out);
 
 /**
  * @brief 设置低通滤波和死区参数
