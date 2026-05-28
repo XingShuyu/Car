@@ -4,8 +4,8 @@
  * @details Uses MSPM0 DriverLib I2C peripheral.
  *
  * Wiring:
- *   MPU6050 SDA  --> MSPM0G3507 PB3 (I2C1_SDA)
- *   MPU6050 SCL  --> MSPM0G3507 PB2 (I2C1_SCL)
+ *   MPU6050 SDA  --> MSPM0G3507 PA28 (I2C0_SDA / I2C_mpu6050)
+ *   MPU6050 SCL  --> MSPM0G3507 PA31 (I2C0_SCL / I2C_mpu6050)
  *   MPU6050 VCC  --> 3.3V
  *   MPU6050 GND  --> GND
  *   MPU6050 AD0  --> GND  (I2C address = 0x68)

@@ -3,6 +3,7 @@
 #include "BasicMicroLib/usart.h"
 #include "Emm/Emm.h"
 #include "GrayScale/Grayscale_Scan.h"
+#include "JY901S/jy901s.h"
 #include "MCU6050/mpu6050.h"
 #include "Motor/newmotor_speed_ctrl.h"
 #include "OLED/display.h"
@@ -14,6 +15,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+
 
 #define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
@@ -69,8 +71,12 @@ volatile uint8_t recv0_flag = 0;
 // key
 uint8_t key_last = 0;
 
-// MPU相关
+// IMU相关
 MPU6050_Data_t MPU6050Data;
+JY901S_Data_t jy;
+static uint32_t jyReadFailCount = 0;
+static bool jyWasReady = false;
+JY901S_RawData_t jyRaw;
 float nowAngle = 0;
 
 // 灰度循迹地址
@@ -123,10 +129,20 @@ int main(void) {
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
-	// 初始化 MPU6050（默认 ±2g / ±250°/s），静止校准陀螺仪零偏
-	if (MPU6050_Init()) {
-		MPU6050_SetFilter(0.35f, 0.1f, 0.01f);
+	if (JY901S_Init()) {
+		Display_ShowString(0, 0, "901 Ready");
+	} else {
+		uint8_t foundAddr = JY901S_ScanFirstAddress();
+		char scanMsg[16];
+		snprintf(scanMsg, sizeof(scanMsg), "scan:%02X", foundAddr);
+		Display_ShowString(0, 0, "901 Faild");
+		Display_ShowString(1, 0, scanMsg);
 	}
+	// 初始化 MPU6050（默认 ±2g / ±250°/s），静止校准陀螺仪零偏
+	// if (MPU6050_Init()) {
+	// 	MPU6050_SetFilter(0.35f, 0.1f, 0.01f);
+	// }
+	delay_ms(1000);
 	// buzzer_beep();
 	// 获取启动时间tick
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
@@ -179,25 +195,56 @@ int main(void) {
 												   rightCountSnapshot);
 		}
 
-		MPU6050_ReadAllCalibrated(&MPU6050Data);
-		char str[21];
-		sprintf(str, "x%.2f y%.2f z%.2f", MPU6050Data.ax, MPU6050Data.ay,
-				MPU6050Data.az);
-		char str1[21];
-		sprintf(str1, "x%.2f y%.2f z%.2f", MPU6050Data.gx, MPU6050Data.gy,
-				MPU6050Data.gz);
-		char str2[21];
-		float x,y,z;
-		MPU6050_GetGyroZero(&x, &y, &z);
-		sprintf(str2, "x%.2f y%.2f z%.2f",x,y,z);
-		nowAngle+=MPU6050Data.gz*getTimeMs(nowTime, lastStageTime)/1000;
-		char str3[21];
-		sprintf(str3, "angle:%.2f",nowAngle);
+		// MPU6050_ReadAllCalibrated(&MPU6050Data);
+		// char str[21];
+		// sprintf(str, "x%.2f y%.2f z%.2f", MPU6050Data.ax, MPU6050Data.ay,
+		// 		MPU6050Data.az);
+		// char str1[21];
+		// sprintf(str1, "x%.2f y%.2f z%.2f", MPU6050Data.gx, MPU6050Data.gy,
+		// 		MPU6050Data.gz);
+		// char str2[21];
+		// float x,y,z;
+		// MPU6050_GetGyroZero(&x, &y, &z);
+		// sprintf(str2, "x%.2f y%.2f z%.2f",x,y,z);
+		// nowAngle+=MPU6050Data.gz*getTimeMs(nowTime, lastStageTime)/1000;
+		// char str3[21];
+		// sprintf(str3, "angle:%.2f",nowAngle);
+		
+		// Display_ShowString(0, 0, str);
+		// Display_ShowString(1, 0, str1);
+		// Display_ShowString(2, 0, str2);
+		// Display_ShowString(3, 0, str3);
 
-		Display_ShowString(0, 0, str);
-		Display_ShowString(1, 0, str1);
-		Display_ShowString(2, 0, str2);
-		Display_ShowString(3, 0, str3);
+		if (getTimeMs(nowTime, lastIMUTime) >= 20) {
+			char str[22];
+			
+
+			JY901S_ReadAll(&jy);
+			jyWasReady = JY901S_ReadRaw(&jyRaw);
+			if (jyWasReady) {
+				jy.ax = (float)jyRaw.ax * (16.0f / 32768.0f);
+				jy.gz = (float)jyRaw.gz * (2000.0f / 32768.0f);
+				jy.yaw = (float)jyRaw.yaw * (180.0f / 32768.0f);
+				nowAngle+=jy.gz*getTimeMs(nowTime, lastIMUTime)/1000.0;
+				snprintf(str, sizeof(str), "yaw:%7.2f", jy.yaw);
+				Display_ShowString(0, 0, str);
+				snprintf(str, sizeof(str), "gz :%7.2f", jy.gz);
+				Display_ShowString(1, 0, str);
+				snprintf(str, sizeof(str), "angle:%7.2f", nowAngle);
+				Display_ShowString(2, 0, str);
+				snprintf(str, sizeof(str), "ms :%6lu",
+						 (unsigned long)(nowTime % 100000u));
+				Display_ShowString(3, 0, str);
+			} else {
+				jyReadFailCount++;
+				snprintf(str, sizeof(str), "JY901S read fail");
+				Display_ShowString(0, 0, str);
+				snprintf(str, sizeof(str), "cnt:%lu",
+						 (unsigned long)jyReadFailCount);
+				Display_ShowString(1, 0, str);
+			}
+			lastIMUTime = nowTime;
+		}
 
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
