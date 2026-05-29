@@ -439,7 +439,7 @@ void JY901S_ConvertRaw(const JY901S_RawData_t *raw, JY901S_Data_t *out)
         return;
     }
 
-    out->ax = (float)raw->ax * JY901S_RAW_ACCEL_TO_G;
+    out->ax = -((float)raw->ax * JY901S_RAW_ACCEL_TO_G);
     out->ay = (float)raw->ay * JY901S_RAW_ACCEL_TO_G;
     out->az = (float)raw->az * JY901S_RAW_ACCEL_TO_G;
     out->gx = -((float)raw->gx * JY901S_RAW_GYRO_TO_DPS);

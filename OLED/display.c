@@ -194,6 +194,7 @@ void Display_ShowString(uint8_t row, uint8_t col, const char *str)
     for (uint8_t page = firstPage; page <= lastPage; page++) {
         (void)OLED_UpdatePage(page);
     }
+    OLED_Clear();
 }
 
 void Display_ShowSpeed(float speed)

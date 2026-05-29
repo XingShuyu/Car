@@ -9,6 +9,7 @@
 
 #include <stdint.h>
 #include <stdbool.h>
+#include "OLED/oled.h"
 
 /**
  * @brief 初始化显示屏（必须在上电后调用）

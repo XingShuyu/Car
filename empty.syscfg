@@ -104,7 +104,6 @@ GPIO4.$name                          = "buzzer";
 GPIO4.associatedPins[0].$name        = "PIN_A16";
 GPIO4.associatedPins[0].assignedPort = "PORTA";
 GPIO4.associatedPins[0].assignedPin  = "16";
-GPIO4.associatedPins[0].initialValue = "SET";
 
 GPIO5.$name                              = "key";
 GPIO5.port                               = "PORTB";

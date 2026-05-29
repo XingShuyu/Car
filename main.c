@@ -15,7 +15,6 @@
 #include <stdlib.h>
 #include <string.h>
 
-
 #define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
 #define G_TO_MS2 9.8f		   // 加速度取9.8
@@ -83,6 +82,8 @@ volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
+float Vx, Vy, Vz, Xx, Xy, Xz;
+
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
@@ -118,7 +119,7 @@ int main(void) {
 	// 电机初始化
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
-	NewMotorSpeedCtrl_Init(&motor, 0.03f);
+	NewMotorSpeedCtrl_Init(&motor, 0.01f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
@@ -127,21 +128,18 @@ int main(void) {
 	{
 		int temp = 0;
 		temp = IMU_Init();
-		if(temp){
+		if (temp) {
 			if (temp == 1) {
 				Display_ShowString(0, 0, "JY901S Ready");
-			}
-			else if (temp == 2) {
+			} else if (temp == 2) {
 				Display_ShowString(0, 0, "MPU6050 Ready");
 			}
-			else {
-				Display_ShowString(0, 0, "IMU Faid");
-			}
+		} else {
+			Display_ShowString(0, 0, "IMU Faid");
 		}
 		delay_ms(1000);
 	}
 
-	
 	// 获取启动时间tick
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
 	delay_ms(2000);
@@ -168,12 +166,14 @@ int main(void) {
 	}
 	startTime = getNowMs();
 	buzzer_beep();
-	
+	lastIMUTime = getNowMs();
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 500, 500);
+
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		// 每30ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
+		if (getTimeMs(nowTime, lastMotorSpeedTime) > 10) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
 			motor.sample_period_s =
@@ -195,55 +195,11 @@ int main(void) {
 		}
 
 		IMU_ReadAll(&IMUData);
-		char str[21];
-		sprintf(str, "x%.2f y%.2f z%.2f", IMUData.ax, IMUData.ay,
-				IMUData.az);
-		char str1[21];
-		sprintf(str1, "x%.2f y%.2f z%.2f", IMUData.gx, IMUData.gy,
-				IMUData.gz);
-		char str2[21];
-		float x,y,z;
-		MPU6050_GetGyroZero(&x, &y, &z);
-		sprintf(str2, "x%.2f y%.2f z%.2f",x,y,z);
-		char str3[21];
-		sprintf(str3, "angle:%.2f",IMUData.yaw);
-		
-		Display_ShowString(0, 0, str);
-		Display_ShowString(1, 0, str1);
-		Display_ShowString(2, 0, str2);
-		Display_ShowString(3, 0, str3);
-
-		// if (getTimeMs(nowTime, lastIMUTime) >= 20) {
-		// 	char str[22];
-			
-
-		// 	JY901S_ReadAll(&jy);
-		// 	jyWasReady = JY901S_ReadRaw(&jyRaw);
-		// 	if (jyWasReady) {
-		// 		jy.ax = (float)jyRaw.ax * (16.0f / 32768.0f);
-		// 		jy.gz = (float)jyRaw.gz * (2000.0f / 32768.0f);
-		// 		jy.yaw = (float)jyRaw.yaw * (180.0f / 32768.0f);
-		// 		nowAngle+=jy.gz*getTimeMs(nowTime, lastIMUTime)/1000.0;
-		// 		snprintf(str, sizeof(str), "yaw:%7.2f", jy.yaw);
-		// 		Display_ShowString(0, 0, str);
-		// 		snprintf(str, sizeof(str), "gz :%7.2f", jy.gz);
-		// 		Display_ShowString(1, 0, str);
-		// 		snprintf(str, sizeof(str), "angle:%7.2f", nowAngle);
-		// 		Display_ShowString(2, 0, str);
-		// 		snprintf(str, sizeof(str), "ms :%6lu",
-		// 				 (unsigned long)(nowTime % 100000u));
-		// 		Display_ShowString(3, 0, str);
-		// 	} else {
-		// 		jyReadFailCount++;
-		// 		snprintf(str, sizeof(str), "JY901S read fail");
-		// 		Display_ShowString(0, 0, str);
-		// 		snprintf(str, sizeof(str), "cnt:%lu",
-		// 				 (unsigned long)jyReadFailCount);
-		// 		Display_ShowString(1, 0, str);
-		// 	}
-		// 	lastIMUTime = nowTime;
-		// }
-
+		OLED_Clear();
+		OLED_DrawCircle(64, 32, 30);
+		int XOff = (IMUData.pitch/90.0) * 32;
+		OLED_DrawCircle(64, 32 + XOff, 2);
+		OLED_Update();
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			int16_t stage = command[StageIndex];
@@ -753,11 +709,11 @@ void process_imu_for_horizontal_motion(float dt) {
 // 蜂鸣器鸣响三声
 void buzzer_beep(void) {
 	for (int i = 0; i < 3; i++) {
-		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16); // 关闭蜂鸣器
-		DL_GPIO_clearPins(GPIOB, DL_GPIO_PIN_22);
-		delay_ms(100);
 		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16); // 打开蜂鸣器
 		DL_GPIO_setPins(GPIOB, DL_GPIO_PIN_22);
+		delay_ms(100);
+		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16); // 关闭蜂鸣器
+		DL_GPIO_clearPins(GPIOB, DL_GPIO_PIN_22);
 		delay_ms(100);
 	}
 }
