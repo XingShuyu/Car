@@ -8,7 +8,7 @@
 #include "OLED/display.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
-#include "ultrasonic/ultrasonic.h"
+#include "wdd35d4/wd35d4.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
@@ -72,6 +72,9 @@ uint8_t key_last = 0;
 // IMU相关
 IMU_Data_t IMUData;
 
+// WDD35D4角位移传感器实时数据
+WDD35D4_Data_t WDD35D4Data;
+
 // 灰度循迹地址
 bool grayscale[8];
 
@@ -82,7 +85,12 @@ volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
-float Vx, Vy, Vz, Xx, Xy, Xz;
+// 倒立摆PID
+float PPendulum = 1.0;
+float IPendulum = 0.0;
+float DPendulum = 0.1;
+float error_i = 0;
+float lastAngleError = 0;
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
@@ -98,9 +106,6 @@ int main(void) {
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
-	//--------------模块初始化---------------
-	Ultrasonic_Init(); // 初始化超声波函数
-
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -109,6 +114,11 @@ int main(void) {
 	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN); // 初始化maixcam
 
 	TimeBase_Init(); // 初始化计时器
+
+	// WDD35D4角位移传感器初始化。上电时保持摆杆竖直，优先自动采样当前值作为零点；
+	// 若采样失败，则回退到头文件中的默认零点。
+	WDD35D4_Init();
+	WDD35D4_SetZeroRaw(WDD35D4_DEFAULT_ZERO_RAW);
 
 	// 使能云台
 	Emm_Init(1);
@@ -121,7 +131,7 @@ int main(void) {
 	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.01f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
-	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
+	NewMotorSpeedCtrl_SetOutputLimit(&motor, -256, 256);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
 	// IMU初始化
@@ -167,13 +177,13 @@ int main(void) {
 	startTime = getNowMs();
 	buzzer_beep();
 	lastIMUTime = getNowMs();
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 500, 500);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 500, 500);
 
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		// 每30ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > 10) {
+		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
 			motor.sample_period_s =
@@ -194,12 +204,14 @@ int main(void) {
 												   rightCountSnapshot);
 		}
 
-		IMU_ReadAll(&IMUData);
-		OLED_Clear();
-		OLED_DrawCircle(64, 32, 30);
-		int XOff = (IMUData.pitch/90.0) * 32;
-		OLED_DrawCircle(64, 32 + XOff, 2);
-		OLED_Update();
+		if (getTimeMs(nowTime, lastIMUTime) > 20) {
+			WDD35D4_ReadData(&WDD35D4Data);
+			char str[22];
+			sprintf(str, "Ang:%.2f,ADC:%d", WDD35D4Data.signed_angle_deg,
+					WDD35D4Data.raw);
+			Display_ShowString(0, 0, str);
+			lastIMUTime = nowTime;
+		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			int16_t stage = command[StageIndex];
@@ -500,12 +512,30 @@ int main(void) {
 					if (MPU6050_ReadAllCalibrated(&IMUData)) {
 						IMUData.yaw += IMUData.gz * t / 1000.0f;
 					}
-					char str[16];
-					sprintf(str, "ang:%.2f", IMUData.yaw);
-					Display_ShowString(0, 0, str);
+
 					float error = (-IMUData.yaw + 135) / 135 + 0.3;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
 						&motor, -(error * RoundSpeed), (error * RoundSpeed));
+				}
+				break;
+			}
+			case StageStandUp: {
+				if (WDD35D4_ReadData(&WDD35D4Data)) {
+					float dt = (float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
+					if (dt <= 0.0f) {
+						dt = DT_SAMPLE;
+					}
+					float angleError = WDD35D4Data.signed_angle_deg/90.0;
+					error_i += angleError * dt;
+					float angleDerivative = (angleError - lastAngleError) / dt;
+					float out = (PPendulum * angleError) + (IPendulum * error_i) +
+								(DPendulum * angleDerivative);
+					lastAngleError = angleError;
+					char str[16];
+					sprintf(str, "out:%.2f", out * BaseSpeed);
+					Display_ShowString(1, 0, str);
+					NewMotorSpeedCtrl_SetTargetWheelMmps(
+						&motor, (out * BaseSpeed), (out * BaseSpeed));
 				}
 				break;
 			}
@@ -706,6 +736,7 @@ void process_imu_for_horizontal_motion(float dt) {
 		yaw_angle += data.gz * dt;
 	}
 }
+
 // 蜂鸣器鸣响三声
 void buzzer_beep(void) {
 	for (int i = 0; i < 3; i++) {

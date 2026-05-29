@@ -9,10 +9,11 @@
 /**
  * Import the modules used in this configuration.
  */
+const ADC12   = scripting.addModule("/ti/driverlib/ADC12", {}, false);
+const ADC121  = ADC12.addInstance();
 const GPIO    = scripting.addModule("/ti/driverlib/GPIO", {}, false);
 const GPIO1   = GPIO.addInstance();
 const GPIO2   = GPIO.addInstance();
-const GPIO3   = GPIO.addInstance();
 const GPIO4   = GPIO.addInstance();
 const GPIO5   = GPIO.addInstance();
 const GPIO6   = GPIO.addInstance();
@@ -36,6 +37,20 @@ const UART3   = UART.addInstance();
  */
 const gate7  = system.clockTree["MFCLKGATE"];
 gate7.enable = true;
+
+ADC121.$name                      = "WDD35D4_ADC";
+ADC121.sampClkSrc                 = "DL_ADC12_CLOCK_ULPCLK";
+ADC121.sampClkDiv                 = "DL_ADC12_CLOCK_DIVIDE_8";
+ADC121.adcMem0chansel             = "DL_ADC12_INPUT_CHAN_4";
+ADC121.adcMem0avgen               = true;
+ADC121.sampleTime0                = "25 us";
+ADC121.hwNumerator                = "DL_ADC12_HW_AVG_NUM_ACC_8";
+ADC121.hwDenominator              = "DL_ADC12_HW_AVG_DEN_DIV_BY_8";
+ADC121.enabledInterrupts          = ["DL_ADC12_INTERRUPT_MEM0_RESULT_LOADED"];
+ADC121.powerDownMode              = "DL_ADC12_POWER_DOWN_MODE_MANUAL";
+ADC121.peripheral.$assign         = "ADC1";
+ADC121.peripheral.adcPin4.$assign = "PB17";
+ADC121.adcPin4Config.$name        = "ti_driverlib_gpio_GPIOPinGeneric14";
 
 GPIO1.$name                          = "MotorMonitor";
 GPIO1.associatedPins.create(5);
@@ -88,17 +103,6 @@ GPIO2.associatedPins[3].direction    = "INPUT";
 GPIO2.associatedPins[3].assignedPort = "PORTA";
 GPIO2.associatedPins[3].assignedPin  = "14";
 GPIO2.associatedPins[3].pin.$assign  = "PA14";
-
-GPIO3.$name                          = "Distance";
-GPIO3.associatedPins.create(2);
-GPIO3.associatedPins[0].$name        = "Echo";
-GPIO3.associatedPins[0].direction    = "INPUT";
-GPIO3.associatedPins[0].assignedPort = "PORTB";
-GPIO3.associatedPins[0].assignedPin  = "17";
-GPIO3.associatedPins[0].polarity     = "RISE";
-GPIO3.associatedPins[1].$name        = "Trig";
-GPIO3.associatedPins[1].assignedPort = "PORTB";
-GPIO3.associatedPins[1].assignedPin  = "19";
 
 GPIO4.$name                          = "buzzer";
 GPIO4.associatedPins[0].$name        = "PIN_A16";
@@ -272,8 +276,6 @@ Board.peripheral.swdioPin.$suggestSolution   = "PA19";
 GPIO2.associatedPins[0].pin.$suggestSolution = "PA25";
 GPIO2.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO2.associatedPins[2].pin.$suggestSolution = "PB20";
-GPIO3.associatedPins[0].pin.$suggestSolution = "PB17";
-GPIO3.associatedPins[1].pin.$suggestSolution = "PB19";
 GPIO4.associatedPins[0].pin.$suggestSolution = "PA16";
 GPIO5.associatedPins[1].pin.$suggestSolution = "PB26";
 TIMER1.peripheral.$suggestSolution           = "TIMA0";
