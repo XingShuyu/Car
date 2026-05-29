@@ -85,13 +85,6 @@ volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
-// 倒立摆PID
-float PPendulum = 1.0;
-float IPendulum = 0.0;
-float DPendulum = 0.1;
-float error_i = 0;
-float lastAngleError = 0;
-
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
@@ -131,7 +124,7 @@ int main(void) {
 	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.01f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
-	NewMotorSpeedCtrl_SetOutputLimit(&motor, -256, 256);
+	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
 	// IMU初始化
@@ -520,23 +513,55 @@ int main(void) {
 				break;
 			}
 			case StageStandUp: {
+				static float PPendulum = 5.0, IPendulum = 0.0, DPendulum = 0.0,
+							 error_i = 0, lastAngleError = 0,
+							 lastDistenceError = 0;
+
 				if (WDD35D4_ReadData(&WDD35D4Data)) {
-					float dt = (float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
-					if (dt <= 0.0f) {
-						dt = DT_SAMPLE;
+					if (WDD35D4Data.signed_angle_deg > -10 &&
+						WDD35D4Data.signed_angle_deg < 10) {
+
+						float dt =
+							(float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
+						float targetAngle = 0, targetDistance = 0;
+						float distenceError =
+							NewMotor_EncoderDeltaToDistanceMm(leftDistance) -
+							targetDistance;
+						targetAngle =
+							0.0 * distenceError +
+							0.0 * (distenceError - lastDistenceError) / dt;
+						lastDistenceError = distenceError;
+
+						if (dt <= 0.0f) {
+							dt = DT_SAMPLE;
+						}
+						if (WDD35D4Data.signed_angle_deg > -1 &&
+							WDD35D4Data.signed_angle_deg < 1) {
+							NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+							lastAngleError = 0;
+						} else {
+							float angleError =
+								(WDD35D4Data.signed_angle_deg - targetAngle) /
+								15.0;
+							error_i += angleError * dt;
+							float angleDerivative =
+								(angleError - lastAngleError) / dt;
+							float out = (PPendulum * angleError) +
+										(IPendulum * error_i) +
+										(DPendulum * angleDerivative);
+							lastAngleError = angleError;
+							char str[16];
+							sprintf(str, "out:%.2f", out * BaseSpeed);
+							Display_ShowString(1, 0, str);
+							NewMotorSpeedCtrl_SetTargetWheelMmps(
+								&motor, (out * BaseSpeed), (out * BaseSpeed));
+						}
 					}
-					float angleError = WDD35D4Data.signed_angle_deg/90.0;
-					error_i += angleError * dt;
-					float angleDerivative = (angleError - lastAngleError) / dt;
-					float out = (PPendulum * angleError) + (IPendulum * error_i) +
-								(DPendulum * angleDerivative);
-					lastAngleError = angleError;
-					char str[16];
-					sprintf(str, "out:%.2f", out * BaseSpeed);
-					Display_ShowString(1, 0, str);
-					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, (out * BaseSpeed), (out * BaseSpeed));
+					else{
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+					}
 				}
+
 				break;
 			}
 			case StageSkip: {

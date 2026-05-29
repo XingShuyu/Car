@@ -14,7 +14,7 @@ static uint16_t s_raw_min = WDD35D4_DEFAULT_RAW_MIN;
 static uint16_t s_raw_max = WDD35D4_DEFAULT_RAW_MAX;
 static uint16_t s_zero_raw = WDD35D4_DEFAULT_ZERO_RAW;
 static int8_t s_direction = 1;
-static float s_filtered_raw = 0.0f;
+static float s_filtered_raw = 0.5f;
 static bool s_filter_ready = false;
 
 void WDD35D4_Init(void)

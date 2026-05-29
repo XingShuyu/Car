@@ -35,7 +35,7 @@ extern "C" {
 /** 一阶低通滤波默认系数。默认不启用软件低通滤波。 */
 #define WDD35D4_DEFAULT_FILTER_ALPHA     (WDD35D4_FILTER_DISABLED)
 /** 自动零点校准失败时使用的零点原始值。 */
-#define WDD35D4_DEFAULT_ZERO_RAW         (1197U)
+#define WDD35D4_DEFAULT_ZERO_RAW         (1241U)
 /** 自动零点校准默认采样次数。 */
 #define WDD35D4_DEFAULT_ZERO_SAMPLES     (32U)
 
