@@ -25,7 +25,10 @@
 #define STANDUP_KP_TICKS_PER_DEG 19.4f
 #define STANDUP_KD_TICKS_PER_DEGPS 2.75232f
 #define STANDUP_D_FILTER_ALPHA 0.35f
-#define PDNum 3
+#define STANDUP_LOG_INTERVAL_MS 50U
+#define STANDUP_DISPLAY_INTERVAL_MS 100U
+#define STANDUP_LOG_TX_BUF_SIZE 512U
+#define PDNum 11
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -91,10 +94,15 @@ NewMotor_SpeedCtrl motor;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
+static char standupLogTxBuf[STANDUP_LOG_TX_BUF_SIZE];
+static uint16_t standupLogTxHead = 0;
+static uint16_t standupLogTxTail = 0;
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
+static void StandupLog_EnqueueString(const char *s);
+static void StandupLog_PollTx(void);
 
 int main(void) {
 	//--------------------------------------
@@ -132,7 +140,8 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.01f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	//NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+
 
 	// IMU初始化
 	{
@@ -182,7 +191,8 @@ int main(void) {
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
-		// 每30ms获取电机运行圈数
+		StandupLog_PollTx();
+		// // 每30ms获取电机运行圈数
 		// if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
 		// 	int32_t leftCountSnapshot;
 		// 	int32_t rightCountSnapshot;
@@ -200,8 +210,8 @@ int main(void) {
 		// 	leftDistance += leftCountSnapshot;
 		// 	rightDistance += rightCountSnapshot;
 
-		// 	NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-		// 										   rightCountSnapshot);
+		// 	// NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+		// 	// 									   rightCountSnapshot);
 		// }
 
 		if (getTimeMs(nowTime, lastIMUTime) > 20) {
@@ -523,6 +533,8 @@ int main(void) {
 				static float lastAngleError = 0.0f;
 				static float angleRateFiltered = 0.0f;
 				static float standupPositionM = 0.0f;
+				static uint32_t lastStandupLogTime = 0;
+				static uint32_t lastStandupDisplayTime = 0;
 				static bool hasLastAngle = false;
 				static bool standupLogHeaderPrinted = false;
 
@@ -532,11 +544,14 @@ int main(void) {
 					motorRightCount = 0;
 					__enable_irq();
 					standupPositionM = 0.0f;
+					lastStandupLogTime = nowTime;
+					lastStandupDisplayTime = nowTime;
 					lastAngleError = 0.0f;
 					angleRateFiltered = 0.0f;
 					hasLastAngle = false;
 					if (!standupLogHeaderPrinted) {
-						printf("theta_rad,theta_dot_radps,pos_m,vel_mps\r\n");
+						StandupLog_EnqueueString(
+							"theta_mrad,theta_dot_mradps,pos_mm,vel_mmps,pwm\r\n");
 						standupLogHeaderPrinted = true;
 					}
 					StageFlag = 1;
@@ -568,6 +583,7 @@ int main(void) {
 						1000.0f;
 					float standupDeltaM = 0.5f * (leftDistanceM + rightDistanceM);
 					float standupVelocityMps = standupDeltaM / dt;
+					int16_t pwmTicks = 0;
 
 					standupPositionM += standupDeltaM;
 					if (hasLastAngle) {
@@ -579,11 +595,6 @@ int main(void) {
 						STANDUP_D_FILTER_ALPHA *
 						(angleRate - angleRateFiltered);
 					lastAngleError = angleError;
-
-					printf("%.6f,%.6f,%.6f,%.6f\r\n",
-						   angleError * DEG_TO_RAD,
-						   angleRateFiltered * DEG_TO_RAD, standupPositionM,
-						   standupVelocityMps);
 
 					if (angleError > -STANDUP_SAFE_ANGLE_DEG &&
 						angleError < STANDUP_SAFE_ANGLE_DEG) {
@@ -597,17 +608,41 @@ int main(void) {
 							pwmOut = (float)-STANDUP_PWM_LIMIT_TICKS;
 						}
 
-						int16_t pwmTicks = (int16_t)pwmOut;
+						pwmTicks = (int16_t)pwmOut;
 
-						char str[16];
-						sprintf(str, "pwm:%d", pwmTicks);
-						Display_ShowString(1, 0, str);
+						if (getTimeMs(nowTime, lastStandupDisplayTime) >=
+							STANDUP_DISPLAY_INTERVAL_MS) {
+							char str[16];
+							sprintf(str, "pwm:%d", pwmTicks);
+							Display_ShowString(1, 0, str);
+							lastStandupDisplayTime = nowTime;
+						}
 						NewMotor_SetWheelPwmTicks(pwmTicks, pwmTicks);
 					} else {
 						NewMotor_SetWheelPwmTicks(0, 0);
 						lastAngleError = 0.0f;
 						angleRateFiltered = 0.0f;
 						hasLastAngle = false;
+					}
+
+					if (getTimeMs(nowTime, lastStandupLogTime) >=
+						STANDUP_LOG_INTERVAL_MS) {
+						int32_t thetaMrad =
+							(int32_t)(angleError * DEG_TO_RAD * 1000.0f);
+						int32_t thetaDotMradps =
+							(int32_t)(angleRateFiltered * DEG_TO_RAD *
+									  1000.0f);
+						int32_t posMm = (int32_t)(standupPositionM * 1000.0f);
+						int32_t velMmps =
+							(int32_t)(standupVelocityMps * 1000.0f);
+						char logLine[56];
+
+						snprintf(logLine, sizeof(logLine),
+								 "%ld,%ld,%ld,%ld,%d\r\n", (long)thetaMrad,
+								 (long)thetaDotMradps, (long)posMm,
+								 (long)velMmps, (int)pwmTicks);
+						StandupLog_EnqueueString(logLine);
+						lastStandupLogTime = nowTime;
 					}
 				} else {
 					NewMotor_SetWheelPwmTicks(0, 0);
@@ -688,6 +723,37 @@ int main(void) {
 		// 	// Display_Clear();
 		// }
 	}
+}
+
+static void StandupLog_EnqueueString(const char *s) {
+	if (s == NULL) {
+		return;
+	}
+
+	while (*s != '\0') {
+		uint16_t nextHead =
+			(uint16_t)((standupLogTxHead + 1U) % STANDUP_LOG_TX_BUF_SIZE);
+		if (nextHead == standupLogTxTail) {
+			return;
+		}
+		standupLogTxBuf[standupLogTxHead] = *s;
+		standupLogTxHead = nextHead;
+		s++;
+	}
+}
+
+static void StandupLog_PollTx(void) {
+	if (standupLogTxTail == standupLogTxHead) {
+		return;
+	}
+	if (DL_UART_isBusy(UART_0_INST)) {
+		return;
+	}
+
+	DL_UART_Main_transmitData(
+		UART_0_INST, (uint8_t)standupLogTxBuf[standupLogTxTail]);
+	standupLogTxTail =
+		(uint16_t)((standupLogTxTail + 1U) % STANDUP_LOG_TX_BUF_SIZE);
 }
 
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
