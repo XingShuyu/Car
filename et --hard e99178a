@@ -1,0 +1,88 @@
+[33m0d845f1[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mTest[m[33m)[m 暂存
+[33me99178a[m 暂存
+[33ma67ce67[m[33m ([m[1;31mXingShuyu/Car/Test[m[33m)[m 暂存2
+[33mecd3f63[m 暂存
+[33m6d8b7eb[m 自动检测JY901S,没有则使用6050
+[33m29e9836[m 增加零yaw
+[33me93d5e0[m 精简901代码
+[33m9ba199f[m 基础设计了jy901s
+[33m28af002[m 整理6050和OLED
+[33m3bf0b59[m[33m ([m[1;31mXingShuyu/Car/main[m[33m, [m[1;31mXingShuyu/Car/HEAD[m[33m, [m[1;32mmain[m[33m)[m 暂存
+[33m508da60[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mc40143b[m 优化主循环，改为switch
+[33m35bd904[m Update README.md
+[33mfabcf04[m 修改地图
+[33m81cc65e[m 稳定性++
+[33m976a665[m 完赛
+[33m40e7e8d[m 按键
+[33mbefef58[m 123题目
+[33me870757[m 暂存
+[33mb90bbe6[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mf1350f6[m 校赛地图
+[33m9059375[m 按键设置
+[33m78e8bce[m 视觉模块更改
+[33m5f0d62d[m 360度自动调转
+[33mf2d16bf[m 更新引脚定义+单轴自稳云台+串口通信可选端口+创建CLAUDE.md
+[33mc78e91e[m Merge branch '测试'
+[33me3bf511[m[33m ([m[1;31mXingShuyu/Car/测试[m[33m)[m 电机修改，不需要陀螺仪
+[33mb1b7438[m 电机测试
+[33mcc4c5e4[m OLED显示器代码
+[33mbfc2b85[m oled+循迹
+[33md306eb4[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mdefa9dd[m 超声波修复
+[33m72712c9[m 显示器01
+[33ma860a18[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33md1cf112[m 显示屏
+[33mae848ef[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m204d940[m 循迹恢复老方案
+[33m6ffd2a8[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33md7c8d0c[m 主函数修改2
+[33mbb2d240[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mbd5ccc7[m 速度
+[33m6feb7a8[m 主函数修改
+[33m342a000[m 精简逻辑解决bug
+[33m78192c4[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m69317e9[m 加了一行注释
+[33mcac5c32[m 直角转弯
+[33m49b8993[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m6e273e0[m mpu6050零偏校准
+[33m70f0290[m 直角转弯测试
+[33m24b5b34[m sonic
+[33me1b14d5[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mb7c01bc[m 超声波测试
+[33m0dffa63[m 修复
+[33m32da322[m 超声波1
+[33mace04f8[m 删除无用的pid
+[33m2bc8cab[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mfdcdca6[m 循迹ok
+[33m0173f55[m 超声波测距
+[33mce1ed6d[m 循迹PID
+[33med45101[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m299cacc[m 修复
+[33m4fd19ea[m 修福
+[33mc74991f[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m50a1b86[m 角度，蜂鸣器
+[33me9fea50[m 电机pid
+[33mfd05336[m 当前代码
+[33mf9ccb5f[m 基础循迹+电机闭环，待测试
+[33mfc6c6af[m 更改格式
+[33mf83f9ec[m 电机回调
+[33mcda513e[m 6050初始测试+电机回调
+[33m2cb9d95[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mfbfef0e[m ASD
+[33ma599874[m 6050未验证
+[33mbf6329a[m 循迹
+[33m5997730[m 修复了串口，测试并修复了马达和循迹
+[33m43d81d5[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33med24309[m 增加systick
+[33m7c5722e[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33mab4d74f[m 修改1
+[33m0ec3847[m Merge branch 'main' of https://github.com/XingShuyu/Car
+[33m05c6765[m 修复部分uart
+[33mc6f8b7f[m 主函数，motor函数更改
+[33m748508b[m 修改了引脚
+[33mcc562aa[m 修复串口
+[33m6ef89ca[m 123
+[33m30c4d05[m Rename README to README.md
+[33m34a89e0[m README Init
+[33mb598850[m chore: reinitialize repository with clean history

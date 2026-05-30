@@ -176,26 +176,26 @@ int main(void) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		// 每30ms获取电机运行圈数
-		if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
-			int32_t leftCountSnapshot;
-			int32_t rightCountSnapshot;
-			motor.sample_period_s =
-				(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
-			lastMotorSpeedTime = nowTime;
+		// if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
+		// 	int32_t leftCountSnapshot;
+		// 	int32_t rightCountSnapshot;
+		// 	motor.sample_period_s =
+		// 		(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
+		// 	lastMotorSpeedTime = nowTime;
 
-			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
-			__disable_irq();
-			leftCountSnapshot = motorLeftCount;
-			rightCountSnapshot = motorRightCount;
-			motorLeftCount = 0;
-			motorRightCount = 0;
-			__enable_irq();
-			leftDistance += leftCountSnapshot;
-			rightDistance += rightCountSnapshot;
+		// 	// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+		// 	__disable_irq();
+		// 	leftCountSnapshot = motorLeftCount;
+		// 	rightCountSnapshot = motorRightCount;
+		// 	motorLeftCount = 0;
+		// 	motorRightCount = 0;
+		// 	__enable_irq();
+		// 	leftDistance += leftCountSnapshot;
+		// 	rightDistance += rightCountSnapshot;
 
-			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-												   rightCountSnapshot);
-		}
+		// 	NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+		// 										   rightCountSnapshot);
+		// }
 
 		if (getTimeMs(nowTime, lastIMUTime) > 20) {
 			WDD35D4_ReadData(&WDD35D4Data);
