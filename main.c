@@ -19,6 +19,13 @@
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
 #define G_TO_MS2 9.8f		   // 加速度取9.8
 #define DT_SAMPLE 0.01f		   // 采样周期10ms
+#define STANDUP_SAFE_ANGLE_DEG 10.0f
+#define STANDUP_DT_MAX_S 0.05f
+#define STANDUP_PWM_LIMIT_TICKS 1800
+#define STANDUP_KP_TICKS_PER_DEG 19.4f
+#define STANDUP_KD_TICKS_PER_DEGPS 2.75232f
+#define STANDUP_D_FILTER_ALPHA 0.35f
+#define PDNum 3
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -111,7 +118,7 @@ int main(void) {
 	// WDD35D4角位移传感器初始化。上电时保持摆杆竖直，优先自动采样当前值作为零点；
 	// 若采样失败，则回退到头文件中的默认零点。
 	WDD35D4_Init();
-	WDD35D4_SetZeroRaw(WDD35D4_DEFAULT_ZERO_RAW);
+	WDD35D4_SetZeroRaw(836);
 
 	// 使能云台
 	Emm_Init(1);
@@ -513,53 +520,100 @@ int main(void) {
 				break;
 			}
 			case StageStandUp: {
-				static float PPendulum = 5.0, IPendulum = 0.0, DPendulum = 0.0,
-							 error_i = 0, lastAngleError = 0,
-							 lastDistenceError = 0;
+				static float lastAngleError = 0.0f;
+				static float angleRateFiltered = 0.0f;
+				static float standupPositionM = 0.0f;
+				static bool hasLastAngle = false;
+				static bool standupLogHeaderPrinted = false;
+
+				if (StageFlag == 0) {
+					__disable_irq();
+					motorLeftCount = 0;
+					motorRightCount = 0;
+					__enable_irq();
+					standupPositionM = 0.0f;
+					lastAngleError = 0.0f;
+					angleRateFiltered = 0.0f;
+					hasLastAngle = false;
+					if (!standupLogHeaderPrinted) {
+						printf("theta_rad,theta_dot_radps,pos_m,vel_mps\r\n");
+						standupLogHeaderPrinted = true;
+					}
+					StageFlag = 1;
+				}
 
 				if (WDD35D4_ReadData(&WDD35D4Data)) {
-					if (WDD35D4Data.signed_angle_deg > -10 &&
-						WDD35D4Data.signed_angle_deg < 10) {
-
-						float dt =
-							(float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
-						float targetAngle = 0, targetDistance = 0;
-						float distenceError =
-							NewMotor_EncoderDeltaToDistanceMm(leftDistance) -
-							targetDistance;
-						targetAngle =
-							0.0 * distenceError +
-							0.0 * (distenceError - lastDistenceError) / dt;
-						lastDistenceError = distenceError;
-
-						if (dt <= 0.0f) {
-							dt = DT_SAMPLE;
-						}
-						if (WDD35D4Data.signed_angle_deg > -1 &&
-							WDD35D4Data.signed_angle_deg < 1) {
-							NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-							lastAngleError = 0;
-						} else {
-							float angleError =
-								(WDD35D4Data.signed_angle_deg - targetAngle) /
-								15.0;
-							error_i += angleError * dt;
-							float angleDerivative =
-								(angleError - lastAngleError) / dt;
-							float out = (PPendulum * angleError) +
-										(IPendulum * error_i) +
-										(DPendulum * angleDerivative);
-							lastAngleError = angleError;
-							char str[16];
-							sprintf(str, "out:%.2f", out * BaseSpeed);
-							Display_ShowString(1, 0, str);
-							NewMotorSpeedCtrl_SetTargetWheelMmps(
-								&motor, (out * BaseSpeed), (out * BaseSpeed));
-						}
+					int32_t leftCountSnapshot;
+					int32_t rightCountSnapshot;
+					float dt =
+						(float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
+					if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
+						dt = DT_SAMPLE;
 					}
-					else{
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+
+					__disable_irq();
+					leftCountSnapshot = motorLeftCount;
+					rightCountSnapshot = motorRightCount;
+					motorLeftCount = 0;
+					motorRightCount = 0;
+					__enable_irq();
+
+					float angleError = WDD35D4Data.signed_angle_deg;
+					float angleRate = 0.0f;
+					float leftDistanceM =
+						NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
+						1000.0f;
+					float rightDistanceM =
+						NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
+						1000.0f;
+					float standupDeltaM = 0.5f * (leftDistanceM + rightDistanceM);
+					float standupVelocityMps = standupDeltaM / dt;
+
+					standupPositionM += standupDeltaM;
+					if (hasLastAngle) {
+						angleRate = (angleError - lastAngleError) / dt;
+					} else {
+						hasLastAngle = true;
 					}
+					angleRateFiltered +=
+						STANDUP_D_FILTER_ALPHA *
+						(angleRate - angleRateFiltered);
+					lastAngleError = angleError;
+
+					printf("%.6f,%.6f,%.6f,%.6f\r\n",
+						   angleError * DEG_TO_RAD,
+						   angleRateFiltered * DEG_TO_RAD, standupPositionM,
+						   standupVelocityMps);
+
+					if (angleError > -STANDUP_SAFE_ANGLE_DEG &&
+						angleError < STANDUP_SAFE_ANGLE_DEG) {
+						float pwmOut =
+							(STANDUP_KP_TICKS_PER_DEG * angleError * PDNum) +
+							(STANDUP_KD_TICKS_PER_DEGPS * angleRateFiltered*PDNum);
+						if (pwmOut > (float)STANDUP_PWM_LIMIT_TICKS) {
+							pwmOut = (float)STANDUP_PWM_LIMIT_TICKS;
+						} else if (pwmOut <
+								   (float)-STANDUP_PWM_LIMIT_TICKS) {
+							pwmOut = (float)-STANDUP_PWM_LIMIT_TICKS;
+						}
+
+						int16_t pwmTicks = (int16_t)pwmOut;
+
+						char str[16];
+						sprintf(str, "pwm:%d", pwmTicks);
+						Display_ShowString(1, 0, str);
+						NewMotor_SetWheelPwmTicks(pwmTicks, pwmTicks);
+					} else {
+						NewMotor_SetWheelPwmTicks(0, 0);
+						lastAngleError = 0.0f;
+						angleRateFiltered = 0.0f;
+						hasLastAngle = false;
+					}
+				} else {
+					NewMotor_SetWheelPwmTicks(0, 0);
+					lastAngleError = 0.0f;
+					angleRateFiltered = 0.0f;
+					hasLastAngle = false;
 				}
 
 				break;
