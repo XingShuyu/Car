@@ -19,16 +19,18 @@
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
 #define G_TO_MS2 9.8f		   // 加速度取9.8
 #define DT_SAMPLE 0.01f		   // 采样周期10ms
-#define STANDUP_SAFE_ANGLE_DEG 10.0f
+#define STANDUP_SAFE_ANGLE_DEG 15.0f
 #define STANDUP_DT_MAX_S 0.05f
 #define STANDUP_PWM_LIMIT_TICKS 1800
-#define STANDUP_KP_TICKS_PER_DEG 19.4f
-#define STANDUP_KD_TICKS_PER_DEGPS 2.75232f
-#define STANDUP_D_FILTER_ALPHA 0.35f
+#define STANDUP_KP_TICKS_PER_DEG 19.6f
+#define STANDUP_KD_TICKS_PER_DEGPS 2.0f
+#define STANDUP_KG_TICKS_PER_DEGPS 7.0f
+#define STANDUP_KGD_TICKS_PER_DEGPS 1.5f
+#define STANDUP_D_FILTER_ALPHA 0.0f
 #define STANDUP_LOG_INTERVAL_MS 50U
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define STANDUP_LOG_TX_BUF_SIZE 512U
-#define PDNum 11
+#define PDNum 10
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -112,7 +114,7 @@ int main(void) {
 	//---------------中断使能----------------
 
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
-	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
+	// NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -126,7 +128,7 @@ int main(void) {
 	// WDD35D4角位移传感器初始化。上电时保持摆杆竖直，优先自动采样当前值作为零点；
 	// 若采样失败，则回退到头文件中的默认零点。
 	WDD35D4_Init();
-	WDD35D4_SetZeroRaw(836);
+	WDD35D4_SetZeroRaw(990);
 
 	// 使能云台
 	Emm_Init(1);
@@ -140,8 +142,7 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.01f);
 	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	//NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
-
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
 	// IMU初始化
 	{
@@ -186,6 +187,7 @@ int main(void) {
 	startTime = getNowMs();
 	buzzer_beep();
 	lastIMUTime = getNowMs();
+	lastStageTime = getNowMs();
 	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 500, 500);
 
 	while (1) {
@@ -214,16 +216,11 @@ int main(void) {
 		// 	// 									   rightCountSnapshot);
 		// }
 
-		if (getTimeMs(nowTime, lastIMUTime) > 20) {
-			WDD35D4_ReadData(&WDD35D4Data);
-			char str[22];
-			sprintf(str, "Ang:%.2f,ADC:%d", WDD35D4Data.signed_angle_deg,
-					WDD35D4Data.raw);
-			Display_ShowString(0, 0, str);
-			lastIMUTime = nowTime;
+		if (getTimeMs(nowTime, lastStageTime) > 7) {
+			Display_ShowString(0, 0, "Too Slow");
 		}
 
-		if (getTimeMs(nowTime, lastStageTime) > 10) {
+		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
 
@@ -550,8 +547,8 @@ int main(void) {
 					angleRateFiltered = 0.0f;
 					hasLastAngle = false;
 					if (!standupLogHeaderPrinted) {
-						StandupLog_EnqueueString(
-							"theta_mrad,theta_dot_mradps,pos_mm,vel_mmps,pwm\r\n");
+						StandupLog_EnqueueString("theta_mrad,theta_dot_mradps,"
+												 "pos_mm,vel_mmps,pwm\r\n");
 						standupLogHeaderPrinted = true;
 					}
 					StageFlag = 1;
@@ -581,9 +578,18 @@ int main(void) {
 					float rightDistanceM =
 						NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
 						1000.0f;
-					float standupDeltaM = 0.5f * (leftDistanceM + rightDistanceM);
+					float standupDeltaM =
+						0.5f * (leftDistanceM + rightDistanceM);
 					float standupVelocityMps = standupDeltaM / dt;
 					int16_t pwmTicks = 0;
+					float angelSize, angleRateSize, angelPolarity = 1,
+													angelRatePolarity = 1;
+					if (angleError < 0) {
+						angelSize = -angleError;
+						angelPolarity = -1;
+					} else {
+						angelSize = angleError;
+					}
 
 					standupPositionM += standupDeltaM;
 					if (hasLastAngle) {
@@ -591,20 +597,29 @@ int main(void) {
 					} else {
 						hasLastAngle = true;
 					}
-					angleRateFiltered +=
-						STANDUP_D_FILTER_ALPHA *
-						(angleRate - angleRateFiltered);
+					if (angleRate < 0) {
+						angleRateSize = -angleRate;
+						angelRatePolarity = -1;
+					}
+					angleRateFiltered += STANDUP_D_FILTER_ALPHA *
+										 (angleRate - angleRateFiltered);
 					lastAngleError = angleError;
 
 					if (angleError > -STANDUP_SAFE_ANGLE_DEG &&
 						angleError < STANDUP_SAFE_ANGLE_DEG) {
+
 						float pwmOut =
 							(STANDUP_KP_TICKS_PER_DEG * angleError * PDNum) +
-							(STANDUP_KD_TICKS_PER_DEGPS * angleRateFiltered*PDNum);
+							(STANDUP_KD_TICKS_PER_DEGPS * angleRate * PDNum) +
+							(angelPolarity *
+							 pow(STANDUP_KG_TICKS_PER_DEGPS, angelSize) *
+							 PDNum) +
+							(angelRatePolarity *
+							 pow(STANDUP_KGD_TICKS_PER_DEGPS, angleRateSize) *
+							 PDNum);
 						if (pwmOut > (float)STANDUP_PWM_LIMIT_TICKS) {
 							pwmOut = (float)STANDUP_PWM_LIMIT_TICKS;
-						} else if (pwmOut <
-								   (float)-STANDUP_PWM_LIMIT_TICKS) {
+						} else if (pwmOut < (float)-STANDUP_PWM_LIMIT_TICKS) {
 							pwmOut = (float)-STANDUP_PWM_LIMIT_TICKS;
 						}
 
@@ -612,9 +627,9 @@ int main(void) {
 
 						if (getTimeMs(nowTime, lastStandupDisplayTime) >=
 							STANDUP_DISPLAY_INTERVAL_MS) {
-							char str[16];
-							sprintf(str, "pwm:%d", pwmTicks);
-							Display_ShowString(1, 0, str);
+							// char str[16];
+							// sprintf(str, "pwm:%d", pwmTicks);
+							// Display_ShowString(1, 0, str);
 							lastStandupDisplayTime = nowTime;
 						}
 						NewMotor_SetWheelPwmTicks(pwmTicks, pwmTicks);
@@ -625,25 +640,25 @@ int main(void) {
 						hasLastAngle = false;
 					}
 
-					if (getTimeMs(nowTime, lastStandupLogTime) >=
-						STANDUP_LOG_INTERVAL_MS) {
-						int32_t thetaMrad =
-							(int32_t)(angleError * DEG_TO_RAD * 1000.0f);
-						int32_t thetaDotMradps =
-							(int32_t)(angleRateFiltered * DEG_TO_RAD *
-									  1000.0f);
-						int32_t posMm = (int32_t)(standupPositionM * 1000.0f);
-						int32_t velMmps =
-							(int32_t)(standupVelocityMps * 1000.0f);
-						char logLine[56];
+					// if (getTimeMs(nowTime, lastStandupLogTime) >=
+					// 	STANDUP_LOG_INTERVAL_MS) {
+					// 	int32_t thetaMrad =
+					// 		(int32_t)(angleError * DEG_TO_RAD * 1000.0f);
+					// 	int32_t thetaDotMradps =
+					// 		(int32_t)(angleRateFiltered * DEG_TO_RAD *
+					// 				  1000.0f);
+					// 	int32_t posMm = (int32_t)(standupPositionM * 1000.0f);
+					// 	int32_t velMmps =
+					// 		(int32_t)(standupVelocityMps * 1000.0f);
+					// 	char logLine[56];
 
-						snprintf(logLine, sizeof(logLine),
-								 "%ld,%ld,%ld,%ld,%d\r\n", (long)thetaMrad,
-								 (long)thetaDotMradps, (long)posMm,
-								 (long)velMmps, (int)pwmTicks);
-						StandupLog_EnqueueString(logLine);
-						lastStandupLogTime = nowTime;
-					}
+					// 	snprintf(logLine, sizeof(logLine),
+					// 			 "%ld,%ld,%ld,%ld,%d\r\n", (long)thetaMrad,
+					// 			 (long)thetaDotMradps, (long)posMm,
+					// 			 (long)velMmps, (int)pwmTicks);
+					// 	StandupLog_EnqueueString(logLine);
+					// 	lastStandupLogTime = nowTime;
+					// }
 				} else {
 					NewMotor_SetWheelPwmTicks(0, 0);
 					lastAngleError = 0.0f;
@@ -750,8 +765,8 @@ static void StandupLog_PollTx(void) {
 		return;
 	}
 
-	DL_UART_Main_transmitData(
-		UART_0_INST, (uint8_t)standupLogTxBuf[standupLogTxTail]);
+	DL_UART_Main_transmitData(UART_0_INST,
+							  (uint8_t)standupLogTxBuf[standupLogTxTail]);
 	standupLogTxTail =
 		(uint16_t)((standupLogTxTail + 1U) % STANDUP_LOG_TX_BUF_SIZE);
 }
@@ -765,54 +780,54 @@ void GROUP1_IRQHandler(void) {
 	// 分别查询两个 PORT 的待处理中断
 	gpioA_iidx = DL_GPIO_getPendingInterrupt(GPIOA);
 	gpioB_iidx = DL_GPIO_getPendingInterrupt(GPIOB);
-	if (gpioA_iidx == MotorMonitor_E1A_IIDX) {
-		DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
-									 MotorMonitor_E1A_PIN);
-		m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
-				0);
-		m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
-				0);
-		if (m1_A == m1_B)
-			motorLeftCount--;
-		else
-			motorLeftCount++;
-	}
-	if (gpioA_iidx == MotorMonitor_E1B_IIDX) {
-		DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT,
-									 MotorMonitor_E1B_PIN);
-		m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
-				0);
-		m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
-				0);
-		if (m1_A != m1_B)
-			motorLeftCount--;
-		else
-			motorLeftCount++;
-	}
-	if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
-		DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
-									 MotorMonitor_E2B_PIN);
-		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
-				0);
-		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
-				0);
-		if (m2_A != m2_B)
-			motorRightCount++;
-		else
-			motorRightCount--;
-	}
-	if (gpioB_iidx == MotorMonitor_E2A_IIDX) {
-		DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
-									 MotorMonitor_E2A_PIN);
-		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
-				0);
-		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
-				0);
-		if (m2_A == m2_B)
-			motorRightCount++;
-		else
-			motorRightCount--;
-	}
+	// if (gpioA_iidx == MotorMonitor_E1A_IIDX) {
+	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
+	// 								 MotorMonitor_E1A_PIN);
+	// 	m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
+	// 			0);
+	// 	m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
+	// 			0);
+	// 	if (m1_A == m1_B)
+	// 		motorLeftCount--;
+	// 	else
+	// 		motorLeftCount++;
+	// }
+	// if (gpioA_iidx == MotorMonitor_E1B_IIDX) {
+	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT,
+	// 								 MotorMonitor_E1B_PIN);
+	// 	m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
+	// 			0);
+	// 	m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
+	// 			0);
+	// 	if (m1_A != m1_B)
+	// 		motorLeftCount--;
+	// 	else
+	// 		motorLeftCount++;
+	// }
+	// if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
+	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
+	// 								 MotorMonitor_E2B_PIN);
+	// 	m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
+	// 			0);
+	// 	m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
+	// 			0);
+	// 	if (m2_A != m2_B)
+	// 		motorRightCount++;
+	// 	else
+	// 		motorRightCount--;
+	// }
+	// if (gpioB_iidx == MotorMonitor_E2A_IIDX) {
+	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
+	// 								 MotorMonitor_E2A_PIN);
+	// 	m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
+	// 			0);
+	// 	m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
+	// 			0);
+	// 	if (m2_A == m2_B)
+	// 		motorRightCount++;
+	// 	else
+	// 		motorRightCount--;
+	// }
 	if (gpioB_iidx == key_PIN_B23_IIDX) {
 		TextIndex++;
 		if (TextIndex > 3) {
