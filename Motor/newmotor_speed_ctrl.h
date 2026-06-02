@@ -17,6 +17,8 @@ typedef struct NewMotor_IncPid {
     float ki;
     float kd;
 
+    float sample_period_s;
+
     float target_mmps;
     float out_ticks;
 

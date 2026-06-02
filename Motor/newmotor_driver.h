@@ -62,9 +62,9 @@ extern "C" {
 #define NEWMOTOR_ENCODER_CPR_MOTOR (500.0f)
 #endif
 
-/* User stated interrupt should be quadrature x4. */
+/* Encoder interrupt mode: one rising edge of phase A per encoder cycle. */
 #ifndef NEWMOTOR_ENCODER_QUADRATURE_MULTIPLIER
-#define NEWMOTOR_ENCODER_QUADRATURE_MULTIPLIER (4.0f)
+#define NEWMOTOR_ENCODER_QUADRATURE_MULTIPLIER (1.0f)
 #endif
 
 #define NEWMOTOR_PI (3.14159265359f)

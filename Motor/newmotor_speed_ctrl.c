@@ -28,8 +28,8 @@ static float nm_pid_incre_step(NewMotor_IncPid *pid, float measured_mmps)
 {
     pid->err = pid->target_mmps - measured_mmps;
     pid->out_ticks += pid->kp * (pid->err - pid->err_next) +
-                      pid->ki * pid->err +
-                      pid->kd * (pid->err - 2.0f * pid->err_next + pid->err_last);
+                      pid->ki * pid->sample_period_s * pid->err +
+                      pid->kd / pid->sample_period_s * (pid->err - 2.0f * pid->err_next + pid->err_last);
 
     pid->err_last = pid->err_next;
     pid->err_next = pid->err;
@@ -131,7 +131,9 @@ void NewMotorSpeedCtrl_UpdateByEncoderDelta(NewMotor_SpeedCtrl *ctrl, int32_t le
     }
 
     ctrl->measured_left_mmps = NewMotor_EncoderDeltaToWheelSpeedMmps(left_delta_counts, ctrl->sample_period_s);
+    ctrl->pid_left.sample_period_s = ctrl->sample_period_s;
     ctrl->measured_right_mmps = NewMotor_EncoderDeltaToWheelSpeedMmps(right_delta_counts, ctrl->sample_period_s);
+    ctrl->pid_right.sample_period_s = ctrl->sample_period_s;
 
     if (!ctrl->enabled) {
         ctrl->pwm_left_ticks = 0;

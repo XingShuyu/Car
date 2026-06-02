@@ -75,12 +75,14 @@ GPIO1.associatedPins[3].$name        = "E1A";
 GPIO1.associatedPins[3].direction    = "INPUT";
 GPIO1.associatedPins[3].assignedPort = "PORTA";
 GPIO1.associatedPins[3].assignedPin  = "26";
-GPIO1.associatedPins[3].polarity     = "RISE_FALL";
+GPIO1.associatedPins[3].polarity     = "RISE";
+GPIO1.associatedPins[3].interruptEn  = true;
 GPIO1.associatedPins[4].$name        = "E2A";
 GPIO1.associatedPins[4].direction    = "INPUT";
 GPIO1.associatedPins[4].assignedPort = "PORTB";
 GPIO1.associatedPins[4].assignedPin  = "24";
-GPIO1.associatedPins[4].polarity     = "RISE_FALL";
+GPIO1.associatedPins[4].polarity     = "RISE";
+GPIO1.associatedPins[4].interruptEn  = true;
 
 GPIO2.$name                          = "GrayS";
 GPIO2.associatedPins.create(4);

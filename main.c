@@ -29,8 +29,17 @@
 #define STANDUP_D_FILTER_ALPHA 0.0f
 #define STANDUP_LOG_INTERVAL_MS 50U
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
-#define STANDUP_LOG_TX_BUF_SIZE 512U
 #define PDNum 10
+#define MOTOR_STEP_TEST_ENABLE 1
+#define MOTOR_STEP_TEST_TARGET_MMPS 500.0f
+#define MOTOR_STEP_TEST_CONTROL_PERIOD_US 500U
+#define MOTOR_STEP_TEST_MEASURE_WINDOW_US 1000U
+#define MOTOR_STEP_TEST_TIMEOUT_MS 5000U
+#define MOTOR_STEP_TEST_REACHED_RATIO 0.95f
+#define MOTOR_STEP_TEST_ABS_TOL_MMPS 25.0f
+#define MOTOR_STEP_TEST_STABLE_TIME_MS 500U
+#define MOTOR_STEP_TEST_LOG_INTERVAL_MS 100U
+#define MOTOR_STEP_TEST_PWM_SAT_TICKS 2000
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -96,15 +105,13 @@ NewMotor_SpeedCtrl motor;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
-static char standupLogTxBuf[STANDUP_LOG_TX_BUF_SIZE];
-static uint16_t standupLogTxHead = 0;
-static uint16_t standupLogTxTail = 0;
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
 static void StandupLog_EnqueueString(const char *s);
-static void StandupLog_PollTx(void);
+static void MotorClosedLoopStepTest(void);
+static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
 
 int main(void) {
 	//--------------------------------------
@@ -114,7 +121,7 @@ int main(void) {
 	//---------------中断使能----------------
 
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
-	// NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
+	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -139,10 +146,15 @@ int main(void) {
 	// 电机初始化
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
-	NewMotorSpeedCtrl_Init(&motor, 0.01f);
-	NewMotorSpeedCtrl_SetPid(&motor, 2.0, 1.1, 1.0);
+	NewMotorSpeedCtrl_Init(&motor, 0.001f);
+	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	printf("OK");
+
+#if MOTOR_STEP_TEST_ENABLE
+	MotorClosedLoopStepTest();
+#endif
 
 	// IMU初始化
 	{
@@ -188,36 +200,42 @@ int main(void) {
 	buzzer_beep();
 	lastIMUTime = getNowMs();
 	lastStageTime = getNowMs();
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 500, 500);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 40, 40);
 
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
-		StandupLog_PollTx();
-		// // 每30ms获取电机运行圈数
-		// if (getTimeMs(nowTime, lastMotorSpeedTime) > 30) {
-		// 	int32_t leftCountSnapshot;
-		// 	int32_t rightCountSnapshot;
-		// 	motor.sample_period_s =
-		// 		(float)getTimeMs(nowTime, lastMotorSpeedTime) / 1000;
-		// 	lastMotorSpeedTime = nowTime;
+		USART_PollTx();
+		// 每30ms获取电机运行圈数
+		uint32_t nowUs = getNowUs();
+		if (getTimeUs(nowUs, lastMotorSpeedTime) > 100) {
+			int32_t leftCountSnapshot;
+			int32_t rightCountSnapshot;
+			motor.sample_period_s =
+				(float)getTimeUs(nowUs, lastMotorSpeedTime) / 1000000.0f;
+			lastMotorSpeedTime = nowUs;
 
-		// 	// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
-		// 	__disable_irq();
-		// 	leftCountSnapshot = motorLeftCount;
-		// 	rightCountSnapshot = motorRightCount;
-		// 	motorLeftCount = 0;
-		// 	motorRightCount = 0;
-		// 	__enable_irq();
-		// 	leftDistance += leftCountSnapshot;
-		// 	rightDistance += rightCountSnapshot;
+			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+			__disable_irq();
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
+			motorLeftCount = 0;
+			motorRightCount = 0;
+			__enable_irq();
+			leftDistance += leftCountSnapshot;
+			rightDistance += rightCountSnapshot;
 
-		// 	// NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-		// 	// 									   rightCountSnapshot);
-		// }
+			int sped =
+				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
+					  motor.sample_period_s);
+			if (getTimeMs(nowTime, lastUartTime) >=
+				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
+				lastUartTime = nowTime;
+				printf("Back:%d\n", sped);
+			}
 
-		if (getTimeMs(nowTime, lastStageTime) > 7) {
-			Display_ShowString(0, 0, "Too Slow");
+			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+												   rightCountSnapshot);
 		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
@@ -741,34 +759,266 @@ int main(void) {
 }
 
 static void StandupLog_EnqueueString(const char *s) {
-	if (s == NULL) {
-		return;
-	}
-
-	while (*s != '\0') {
-		uint16_t nextHead =
-			(uint16_t)((standupLogTxHead + 1U) % STANDUP_LOG_TX_BUF_SIZE);
-		if (nextHead == standupLogTxTail) {
-			return;
-		}
-		standupLogTxBuf[standupLogTxHead] = *s;
-		standupLogTxHead = nextHead;
-		s++;
-	}
+	USART_WriteAsync(s);
 }
 
-static void StandupLog_PollTx(void) {
-	if (standupLogTxTail == standupLogTxHead) {
-		return;
-	}
-	if (DL_UART_isBusy(UART_0_INST)) {
-		return;
+static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps) {
+	float absTarget = fabsf(target_mmps);
+	float absMeasured = fabsf(measured_mmps);
+	float tolerance = absTarget * (1.0f - MOTOR_STEP_TEST_REACHED_RATIO);
+
+	if (tolerance < MOTOR_STEP_TEST_ABS_TOL_MMPS) {
+		tolerance = MOTOR_STEP_TEST_ABS_TOL_MMPS;
 	}
 
-	DL_UART_Main_transmitData(UART_0_INST,
-							  (uint8_t)standupLogTxBuf[standupLogTxTail]);
-	standupLogTxTail =
-		(uint16_t)((standupLogTxTail + 1U) % STANDUP_LOG_TX_BUF_SIZE);
+	return fabsf(absTarget - absMeasured) <= tolerance;
+}
+
+static void MotorClosedLoopStepTest(void) {
+	const float targetMmps = MOTOR_STEP_TEST_TARGET_MMPS;
+	uint32_t commandTimeUs;
+	uint32_t firstMoveTimeUs = 0;
+	uint32_t reachedTimeUs = 0;
+	uint32_t stableStartTimeUs = 0;
+	uint32_t lastUpdateUs;
+	uint32_t lastLogMs;
+	uint32_t updateCount = 0;
+	uint32_t lastActualPeriodUs = 0;
+	uint32_t measureWindowUs = 0;
+	int32_t measureLeftCount = 0;
+	int32_t measureRightCount = 0;
+	int32_t lastLeftCount = 0;
+	int32_t lastRightCount = 0;
+	float lastLeftMmps = 0.0f;
+	float lastRightMmps = 0.0f;
+	float lastAvgMmps = 0.0f;
+	float lastWindowLeftMmps = 0.0f;
+	float lastWindowRightMmps = 0.0f;
+	float lastWindowAvgMmps = 0.0f;
+	int16_t lastLeftPwm = 0;
+	int16_t lastRightPwm = 0;
+	bool firstMoveSeen = false;
+	bool stableTiming = false;
+	bool reached = false;
+	bool pwmSaturated = false;
+
+	__disable_irq();
+	motorLeftCount = 0;
+	motorRightCount = 0;
+	__enable_irq();
+	leftDistance = 0;
+	rightDistance = 0;
+
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
+	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+	delay_ms(300);
+
+	Display_Clear();
+	Display_ShowString(0, 0, "Motor Step Test");
+	{
+		char oledLine[22];
+		snprintf(oledLine, sizeof(oledLine), "Target:%d mm/s",
+				 (int)targetMmps);
+		Display_ShowString(2, 0, oledLine);
+	}
+	Display_ShowString(4, 0, "Measuring...");
+
+	__disable_irq();
+	motorLeftCount = 0;
+	motorRightCount = 0;
+	__enable_irq();
+
+	commandTimeUs = getNowUs();
+	lastUpdateUs = commandTimeUs;
+	lastLogMs = getNowMs();
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, targetMmps, targetMmps);
+
+	while (getTimeUs(getNowUs(), commandTimeUs) <
+		   (MOTOR_STEP_TEST_TIMEOUT_MS * 1000U)) {
+		uint32_t nowUs = getNowUs();
+		uint32_t nowMs = getNowMs();
+
+		USART_PollTx();
+
+		if (getTimeUs(nowUs, lastUpdateUs) >=
+			MOTOR_STEP_TEST_CONTROL_PERIOD_US) {
+			int32_t leftCountSnapshot;
+			int32_t rightCountSnapshot;
+			float leftMmps;
+			float rightMmps;
+			float avgMmps;
+			int16_t leftPwm;
+			int16_t rightPwm;
+			bool measureWindowReady = false;
+
+			motor.sample_period_s =
+				(float)getTimeUs(nowUs, lastUpdateUs) / 1000000.0f;
+			lastActualPeriodUs = getTimeUs(nowUs, lastUpdateUs);
+			lastUpdateUs = nowUs;
+			updateCount++;
+
+			__disable_irq();
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
+			motorLeftCount = 0;
+			motorRightCount = 0;
+			__enable_irq();
+
+			leftDistance += leftCountSnapshot;
+			rightDistance += rightCountSnapshot;
+			measureLeftCount += leftCountSnapshot;
+			measureRightCount += rightCountSnapshot;
+			measureWindowUs += lastActualPeriodUs;
+
+			if (!firstMoveSeen &&
+				(leftCountSnapshot != 0 || rightCountSnapshot != 0)) {
+				firstMoveSeen = true;
+				firstMoveTimeUs = nowUs;
+			}
+
+			NewMotorSpeedCtrl_UpdateByEncoderDelta(
+				&motor, leftCountSnapshot, rightCountSnapshot);
+			NewMotorSpeedCtrl_GetMeasuredWheelMmps(&motor, &leftMmps,
+												   &rightMmps);
+			NewMotorSpeedCtrl_GetOutputPwmTicks(&motor, &leftPwm, &rightPwm);
+			avgMmps = NewMotor_LeftRightToLinearSpeedMmps(leftMmps, rightMmps);
+			lastLeftCount = leftCountSnapshot;
+			lastRightCount = rightCountSnapshot;
+			lastLeftMmps = leftMmps;
+			lastRightMmps = rightMmps;
+			lastAvgMmps = avgMmps;
+			lastLeftPwm = leftPwm;
+			lastRightPwm = rightPwm;
+			if (leftPwm >= MOTOR_STEP_TEST_PWM_SAT_TICKS ||
+				leftPwm <= -MOTOR_STEP_TEST_PWM_SAT_TICKS ||
+				rightPwm >= MOTOR_STEP_TEST_PWM_SAT_TICKS ||
+				rightPwm <= -MOTOR_STEP_TEST_PWM_SAT_TICKS) {
+				pwmSaturated = true;
+			}
+
+			if (measureWindowUs >= MOTOR_STEP_TEST_MEASURE_WINDOW_US) {
+				float measureWindowS = (float)measureWindowUs / 1000000.0f;
+				lastWindowLeftMmps =
+					NewMotor_EncoderDeltaToDistanceMm(measureLeftCount) /
+					measureWindowS;
+				lastWindowRightMmps =
+					NewMotor_EncoderDeltaToDistanceMm(measureRightCount) /
+					measureWindowS;
+				lastWindowAvgMmps = NewMotor_LeftRightToLinearSpeedMmps(
+					lastWindowLeftMmps, lastWindowRightMmps);
+				measureLeftCount = 0;
+				measureRightCount = 0;
+				measureWindowUs = 0;
+				measureWindowReady = true;
+			}
+
+			if (measureWindowReady) {
+				if (MotorStepTest_IsReached(lastWindowAvgMmps, targetMmps)) {
+					if (!stableTiming) {
+						stableTiming = true;
+						stableStartTimeUs = nowUs;
+						reachedTimeUs = nowUs;
+					}
+					if (getTimeUs(nowUs, stableStartTimeUs) >=
+						(MOTOR_STEP_TEST_STABLE_TIME_MS * 1000U)) {
+						reached = true;
+						break;
+					}
+				} else {
+					stableTiming = false;
+				}
+			}
+
+			if (getTimeMs(nowMs, lastLogMs) >=
+				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
+				lastLogMs = nowMs;
+				printf("Step t=%lu ms L=%d R=%d Avg=%d WinAvg=%d PWM=%d,%d Cnt=%ld,%ld dt=%lu us\n",
+					   (unsigned long)(getTimeUs(nowUs, commandTimeUs) / 1000U),
+					   (int)leftMmps, (int)rightMmps, (int)avgMmps,
+					   (int)lastWindowAvgMmps, leftPwm, rightPwm,
+					   (long)leftCountSnapshot,
+					   (long)rightCountSnapshot,
+					   (unsigned long)lastActualPeriodUs);
+			}
+		}
+	}
+
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
+	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+
+	if (reached) {
+		uint32_t commandToTargetMs =
+			getTimeUs(reachedTimeUs, commandTimeUs) / 1000U;
+		uint32_t motorStartToTargetMs =
+			firstMoveSeen ? (getTimeUs(reachedTimeUs, firstMoveTimeUs) /
+							 1000U)
+						  : 0U;
+		char oledLine[22];
+
+		Display_Clear();
+		Display_ShowString(0, 0, "Step Test Done");
+		Display_ShowString(2, 0, "Reached");
+		snprintf(oledLine, sizeof(oledLine), "Cmd:%lu ms",
+				 (unsigned long)commandToTargetMs);
+		Display_ShowString(4, 0, oledLine);
+		if (firstMoveSeen) {
+			snprintf(oledLine, sizeof(oledLine), "Run:%lu ms",
+					 (unsigned long)motorStartToTargetMs);
+			Display_ShowString(6, 0, oledLine);
+		} else {
+			Display_ShowString(6, 0, "Run:no edge");
+		}
+		snprintf(oledLine, sizeof(oledLine), "PWM:%s",
+				 pwmSaturated ? "Hit 2000" : "No limit");
+		Display_ShowString(7, 0, oledLine);
+	} else {
+		char oledLine[22];
+		uint32_t elapsedMs = getTimeUs(getNowUs(), commandTimeUs) / 1000U;
+		float oneCountMmps =
+			NewMotor_EncoderDeltaToDistanceMm(1) /
+			((float)MOTOR_STEP_TEST_CONTROL_PERIOD_US / 1000000.0f);
+		float oneCountWindowMmps =
+			NewMotor_EncoderDeltaToDistanceMm(1) /
+			((float)MOTOR_STEP_TEST_MEASURE_WINDOW_US / 1000000.0f);
+
+
+		Display_Clear();
+		Display_ShowString(0, 0, "Step Test Done");
+		Display_ShowString(2, 0, "Timeout");
+		snprintf(oledLine, sizeof(oledLine), "T:%d A:%d",
+				 (int)targetMmps, (int)lastWindowAvgMmps);
+		Display_ShowString(4, 0, oledLine);
+		snprintf(oledLine, sizeof(oledLine), "PWM:%d,%d", lastLeftPwm,
+				 lastRightPwm);
+		Display_ShowString(6, 0, oledLine);
+		snprintf(oledLine, sizeof(oledLine), "PWM:%s",
+				 pwmSaturated ? "Hit 2000" : "No limit");
+		Display_ShowString(7, 0, oledLine);
+
+		printf("Step Timeout target=%d elapsed=%lu ms updates=%lu last_dt=%lu us\n",
+			   (int)targetMmps, (unsigned long)elapsedMs,
+			   (unsigned long)updateCount, (unsigned long)lastActualPeriodUs);
+		printf("Step Final instant_left=%d instant_right=%d instant_avg=%d window_left=%d window_right=%d window_avg=%d pwm=%d,%d last_cnt=%ld,%ld total_cnt=%ld,%ld\n",
+			   (int)lastLeftMmps, (int)lastRightMmps,
+			   (int)lastAvgMmps, (int)lastWindowLeftMmps,
+			   (int)lastWindowRightMmps, (int)lastWindowAvgMmps,
+			   lastLeftPwm, lastRightPwm,
+			   (long)lastLeftCount, (long)lastRightCount,
+			   (long)leftDistance, (long)rightDistance);
+		printf("Step PWM saturated=%s threshold=%d\n",
+			   pwmSaturated ? "yes" : "no",
+			   MOTOR_STEP_TEST_PWM_SAT_TICKS);
+		printf("Step Resolution control_period=%lu us one_count=%d mm/s measure_window=%lu us window_one_count=%d mm/s dropped_tx=%lu\n",
+			   (unsigned long)MOTOR_STEP_TEST_CONTROL_PERIOD_US,
+			   (int)(oneCountMmps + 0.5f),
+			   (unsigned long)MOTOR_STEP_TEST_MEASURE_WINDOW_US,
+			   (int)(oneCountWindowMmps + 0.5f),
+			   (unsigned long)USART_GetDroppedTxBytes());
+	}
+
+	while (1) {
+		USART_PollTx();
+	}
 }
 
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
@@ -780,59 +1030,39 @@ void GROUP1_IRQHandler(void) {
 	// 分别查询两个 PORT 的待处理中断
 	gpioA_iidx = DL_GPIO_getPendingInterrupt(GPIOA);
 	gpioB_iidx = DL_GPIO_getPendingInterrupt(GPIOB);
-	// if (gpioA_iidx == MotorMonitor_E1A_IIDX) {
-	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
-	// 								 MotorMonitor_E1A_PIN);
-	// 	m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
-	// 			0);
-	// 	m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
-	// 			0);
-	// 	if (m1_A == m1_B)
-	// 		motorLeftCount--;
-	// 	else
-	// 		motorLeftCount++;
-	// }
-	// if (gpioA_iidx == MotorMonitor_E1B_IIDX) {
-	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E1B_PORT,
-	// 								 MotorMonitor_E1B_PIN);
-	// 	m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
-	// 			0);
-	// 	m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
-	// 			0);
-	// 	if (m1_A != m1_B)
-	// 		motorLeftCount--;
-	// 	else
-	// 		motorLeftCount++;
-	// }
-	// if (gpioA_iidx == MotorMonitor_E2B_IIDX) {
-	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E2B_PORT,
-	// 								 MotorMonitor_E2B_PIN);
-	// 	m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
-	// 			0);
-	// 	m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
-	// 			0);
-	// 	if (m2_A != m2_B)
-	// 		motorRightCount++;
-	// 	else
-	// 		motorRightCount--;
-	// }
-	// if (gpioB_iidx == MotorMonitor_E2A_IIDX) {
-	// 	DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
-	// 								 MotorMonitor_E2A_PIN);
-	// 	m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
-	// 			0);
-	// 	m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
-	// 			0);
-	// 	if (m2_A == m2_B)
-	// 		motorRightCount++;
-	// 	else
-	// 		motorRightCount--;
-	// }
+	if (gpioA_iidx == MotorMonitor_E1A_IIDX) {
+		DL_GPIO_clearInterruptStatus(MotorMonitor_E1A_PORT,
+									 MotorMonitor_E1A_PIN);
+		m1_A = (DL_GPIO_readPins(MotorMonitor_E1A_PORT, MotorMonitor_E1A_PIN) !=
+				0);
+		m1_B = (DL_GPIO_readPins(MotorMonitor_E1B_PORT, MotorMonitor_E1B_PIN) !=
+				0);
+		if (m1_A == m1_B)
+			motorLeftCount--;
+		else
+			motorLeftCount++;
+	}
+	if (gpioB_iidx == MotorMonitor_E2A_IIDX) {
+		DL_GPIO_clearInterruptStatus(MotorMonitor_E2A_PORT,
+									 MotorMonitor_E2A_PIN);
+		m2_A = (DL_GPIO_readPins(MotorMonitor_E2A_PORT, MotorMonitor_E2A_PIN) !=
+				0);
+		m2_B = (DL_GPIO_readPins(MotorMonitor_E2B_PORT, MotorMonitor_E2B_PIN) !=
+				0);
+		if (m2_A == m2_B)
+			motorRightCount++;
+		else
+			motorRightCount--;
+	}
 	if (gpioB_iidx == key_PIN_B23_IIDX) {
+		DL_GPIO_clearInterruptStatus(key_PORT, key_PIN_B23_PIN);
 		TextIndex++;
 		if (TextIndex > 3) {
 			TextIndex -= 4;
 		}
+	}
+	if (gpioB_iidx == key_PIN_B26_IIDX) {
+		DL_GPIO_clearInterruptStatus(key_PORT, key_PIN_B26_PIN);
 	}
 }
 
@@ -845,19 +1075,21 @@ void UART_0_INST_IRQHandler(void) {
 	switch (DL_UART_getPendingInterrupt(UART_0_INST)) {
 	case DL_UART_IIDX_RX: // 如果是接收中断	If it is a receive interrupt
 
-		// 接收发送过来的数据保存	Receive and save the data sent
-		receivedData = DL_UART_Main_receiveData(UART_0_INST);
+		while (!DL_UART_Main_isRXFIFOEmpty(UART_0_INST)) {
+			// 接收发送过来的数据保存	Receive and save the data sent
+			receivedData = DL_UART_Main_receiveData(UART_0_INST);
 
-		// 检查缓冲区是否已满	Check if the buffer is full
-		if (recv0_length < 128 - 1 && receivedData != '\0' &&
-			receivedData != '\n') {
-			recv0_buff[recv0_length++] = receivedData;
-		} else {
-			recv0_length = 0;
+			// 检查缓冲区是否已满	Check if the buffer is full
+			if (recv0_length < 128 - 1 && receivedData != '\0' &&
+				receivedData != '\n') {
+				recv0_buff[recv0_length++] = receivedData;
+			} else {
+				recv0_length = 0;
+			}
+
+			// 标记接收标志	Mark receiving flag
+			recv0_flag = 1;
 		}
-
-		// 标记接收标志	Mark receiving flag
-		recv0_flag = 1;
 
 		break;
 

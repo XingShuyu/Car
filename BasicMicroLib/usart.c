@@ -1,10 +1,16 @@
 #include "usart.h"
+#include <stdbool.h>
 #include <stdio.h>
 
 
 #define RE_0_BUFF_LEN_MAX	128
+#define USART_TX_BUFFER_SIZE 1024U
+#define USART_TX_BUDGET_PER_POLL 16U
 
-
+static volatile uint8_t usartTxBuffer[USART_TX_BUFFER_SIZE];
+static volatile uint16_t usartTxHead = 0;
+static volatile uint16_t usartTxTail = 0;
+static volatile uint32_t usartTxDropped = 0;
 
 static void USART_SendByte_Blocking(UART_Regs *uart, uint8_t data)
 {
@@ -18,8 +24,44 @@ static void USART_SendByte_Blocking(UART_Regs *uart, uint8_t data)
 	DL_UART_Main_transmitData(uart, data);
 }
 
+static bool USART_EnqueueByte(uint8_t data)
+{
+	uint32_t primask;
+	uint16_t head;
+	uint16_t nextHead;
+	bool queued = false;
+
+	primask = __get_PRIMASK();
+	__disable_irq();
+	head = usartTxHead;
+	nextHead = (uint16_t)((head + 1U) % USART_TX_BUFFER_SIZE);
+	if (nextHead != usartTxTail) {
+		usartTxBuffer[head] = data;
+		usartTxHead = nextHead;
+		queued = true;
+	} else {
+		usartTxDropped++;
+	}
+	if (primask == 0U) {
+		__enable_irq();
+	}
+
+	return queued;
+}
+
 void USART_Init(void)
 {
+	usartTxHead = 0;
+	usartTxTail = 0;
+	usartTxDropped = 0;
+
+	DL_UART_Main_changeConfig(UART_0_INST);
+	DL_UART_Main_enableFIFOs(UART_0_INST);
+	DL_UART_Main_setTXFIFOThreshold(UART_0_INST,
+									DL_UART_MAIN_TX_FIFO_LEVEL_EMPTY);
+	DL_UART_Main_setRXFIFOThreshold(UART_0_INST,
+									DL_UART_MAIN_RX_FIFO_LEVEL_ONE_ENTRY);
+	DL_UART_Main_enable(UART_0_INST);
 	//清除串口中断标志
 	//Clear the serial port interrupt flag
 	NVIC_ClearPendingIRQ(UART_0_INST_INT_IRQN);
@@ -30,7 +72,40 @@ void USART_Init(void)
 
 void USART_SendData(UART_Regs *uart, unsigned char data)
 {
-	USART_SendByte_Blocking(uart, (uint8_t)data);
+	if (uart == UART_0_INST) {
+		(void)USART_EnqueueByte((uint8_t)data);
+	} else {
+		USART_SendByte_Blocking(uart, (uint8_t)data);
+	}
+}
+
+void USART_WriteAsync(const char *str)
+{
+	if (str == NULL) {
+		return;
+	}
+
+	while (*str != '\0') {
+		(void)USART_EnqueueByte((uint8_t)*str);
+		str++;
+	}
+}
+
+void USART_PollTx(void)
+{
+	uint32_t sent = 0;
+
+	while ((sent < USART_TX_BUDGET_PER_POLL) && (usartTxTail != usartTxHead) &&
+		   !DL_UART_Main_isTXFIFOFull(UART_0_INST)) {
+		DL_UART_Main_transmitData(UART_0_INST, usartTxBuffer[usartTxTail]);
+		usartTxTail = (uint16_t)((usartTxTail + 1U) % USART_TX_BUFFER_SIZE);
+		sent++;
+	}
+}
+
+uint32_t USART_GetDroppedTxBytes(void)
+{
+	return usartTxDropped;
 }
 
 
@@ -66,9 +141,9 @@ int fputc(int ch, FILE *stream)
 {
 	(void)stream;
 	if (ch == '\n') {
-		USART_SendByte_Blocking(UART_0_INST, '\r');
+		(void)USART_EnqueueByte('\r');
 	}
-	USART_SendByte_Blocking(UART_0_INST, (uint8_t)ch);
+	(void)USART_EnqueueByte((uint8_t)ch);
 	return ch;
 }
 
