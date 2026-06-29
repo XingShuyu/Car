@@ -149,7 +149,7 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
 	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
