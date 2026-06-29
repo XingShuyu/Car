@@ -243,10 +243,6 @@ int main(void) {
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
-			IMU_ReadAll(&IMUData);
-			char str1[22];
-			sprintf(str1,"%.2f",IMUData.yaw);
-			Display_ShowString(0,  0, str1);
 
 			switch (stage) {
 			case StageRush: {
