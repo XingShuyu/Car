@@ -30,7 +30,7 @@
 #define STANDUP_LOG_INTERVAL_MS 50U
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
-#define MOTOR_STEP_TEST_ENABLE 1
+#define MOTOR_STEP_TEST_ENABLE 0
 #define MOTOR_STEP_TEST_TARGET_MMPS 500.0f
 #define MOTOR_STEP_TEST_CONTROL_PERIOD_US 500U
 #define MOTOR_STEP_TEST_MEASURE_WINDOW_US 1000U
@@ -149,7 +149,7 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
 	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
@@ -162,8 +162,10 @@ int main(void) {
 		temp = IMU_Init();
 		if (temp) {
 			if (temp == 1) {
-				Display_ShowString(0, 0, "JY901S Ready");
+				Display_ShowString(0, 0, "HWT101 Ready");
 			} else if (temp == 2) {
+				Display_ShowString(0, 0, "JY901S Ready");
+			} else if (temp == 3) {
 				Display_ShowString(0, 0, "MPU6050 Ready");
 			}
 		} else {
@@ -241,6 +243,10 @@ int main(void) {
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
+			IMU_ReadAll(&IMUData);
+			char str1[22];
+			sprintf(str1,"%.2f",IMUData.yaw);
+			Display_ShowString(0,  0, str1);
 
 			switch (stage) {
 			case StageRush: {
@@ -522,10 +528,12 @@ int main(void) {
 			case StageTurn145: {
 				if (StageFlag == 0) {
 					IMUData.yaw = 0.0;
+					IMU_ZeroYaw();
 					StageFlag++;
 				}
 				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -(RoundSpeed),
 													 (RoundSpeed));
+				(void)IMU_ReadAll(&IMUData);
 				if (IMUData.yaw > 132.0 && IMUData.yaw < 137.0) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
@@ -533,11 +541,6 @@ int main(void) {
 					lastStageTime = nowTime;
 					StageIndex++;
 				} else {
-					float t = getTimeMs(getNowMs(), lastStageTime);
-					if (MPU6050_ReadAllCalibrated(&IMUData)) {
-						IMUData.yaw += IMUData.gz * t / 1000.0f;
-					}
-
 					float error = (-IMUData.yaw + 135) / 135 + 0.3;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
 						&motor, -(error * RoundSpeed), (error * RoundSpeed));
@@ -1117,9 +1120,9 @@ void UART_MAIXCAM_INST_IRQHandler(void) {
 }
 // 计算姿态角和位移的函数(dt单位秒)
 void process_imu_for_horizontal_motion(float dt) {
-	JY901S_Data_t data;
-	if (!MPU6050_ReadAllCalibrated(&data)) {
-		printf("MPU6050 read error\n");
+	IMU_Data_t data;
+	if (!IMU_ReadAll(&data)) {
+		printf("IMU read error\n");
 		return;
 	}
 	if (data.gz < 0.01 && data.gz > -0.01) {
