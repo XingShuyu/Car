@@ -48,6 +48,8 @@ int blackLen[3];
 // 各种时间声明
 // 获取电机速度时间戳
 uint32_t lastMotorSpeedTime = 0;
+// 位置环时间
+uint32_t lastPositionSpeedTime = 0;
 // 数据输出时间戳
 uint32_t lastUartTime = 0;
 // 循迹时间戳
@@ -95,7 +97,14 @@ bool grayscale[8];
 NewMotor_SpeedCtrl motor;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
+int leftSpeed,rightSpeed;
 int leftDistance, rightDistance;
+//平衡位置
+float leftBalanceAngle = 0;
+float rightBalanceAngle = 0;
+float leftTargetAngle = 0;
+float rightTargetAngle = 0;
+
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
@@ -139,10 +148,10 @@ int main(void) {
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
-	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
+	NewMotorSpeedCtrl_SetPid(&motor, 13.0, 800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
-	
+
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
@@ -207,7 +216,7 @@ int main(void) {
 	startTime = getNowMs();
 	buzzer_beep();
 	lastIMUTime = getNowMs();
-	lastStageTime = getNowMs();
+	lastStageTime = getNowMs()+5000;
 
 	while (1) {
 		// 更新当前时间
@@ -216,25 +225,79 @@ int main(void) {
 		uint32_t nowUs = getNowUs();
 		// 平衡环
 		if (getTimeUs(nowUs, lastMotorSpeedTime) > 5000U) {
+			
+			// 获取速度
+			int32_t leftCountSnapshot;
+			int32_t rightCountSnapshot;
+			motor.sample_period_s =
+				(float)getTimeUs(nowUs, lastMotorSpeedTime) / 1000000.0f;
+			lastMotorSpeedTime = nowUs;
+
+			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
+			__disable_irq();
+			leftCountSnapshot = motorLeftCount;
+			rightCountSnapshot = motorRightCount;
+			motorLeftCount = 0;
+			motorRightCount = 0;
+			__enable_irq();
+			leftDistance += leftCountSnapshot;
+			rightDistance += rightCountSnapshot;
+
+			leftSpeed =
+				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
+					  motor.sample_period_s);
+			rightSpeed =
+				(int)(NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
+					  motor.sample_period_s);
+
 			int32_t t = getTimeUs(nowUs, lastMotorSpeedTime);
 			lastMotorSpeedTime = nowUs;
 			IMU_ReadAll(&IMUData);
-			float roll = IMUData.roll;
+			float leftRoll = IMUData.roll-leftBalanceAngle;
+			float rightRoll = IMUData.roll-rightBalanceAngle;
 			float gx = IMUData.gx;
 
-			if(roll>10||roll<-10){
+			if (IMUData.roll > 30 || IMUData.roll < -30) {
+				leftDistance = 0;
+				rightDistance = 0;
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-			}
-			else {
-				int outTicks = (2.0*roll/20.0*2000-5.0*gx);
-				printf("Back:%d\r\n",outTicks);
-				NewMotor_SetWheelPwmTicks(outTicks, outTicks);
+			} else {
+				int letfOutTicks = 0.92 * leftRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
+				int rightOutTicks = 0.92 * rightRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
+				NewMotor_SetWheelPwmTicks(letfOutTicks, rightOutTicks);
 			}
 		}
+// 20ms 位置/速度外环
+if (getTimeUs(nowUs, lastPositionSpeedTime) > 20000U) {
+    float dt = (float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
+    lastPositionSpeedTime = nowUs;
+
+    float targetSpeed = -50.0f; // 前进；设 0 就原地稳住
+    float avgSpeed = 0.5f * (leftSpeed + rightSpeed);
+
+    static float speedIntegral = 0.0f;
+    float speedError = targetSpeed - avgSpeed;
+    speedIntegral += speedError * dt;
+
+    if (speedIntegral > 300.0f) speedIntegral = 300.0f;
+    if (speedIntegral < -300.0f) speedIntegral = -300.0f;
+
+    float angleCmd = 0.01f * speedError + 0.02f * speedIntegral;
+
+    if (angleCmd > 5.0f) angleCmd = 5.0f;
+    if (angleCmd < -5.0f) angleCmd = -5.0f;
+
+    leftBalanceAngle = angleCmd;
+    rightBalanceAngle = angleCmd;
+}
+
 
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
+			leftTargetAngle = 1.0;
+			rightTargetAngle = 1.0;
+			//leftDistance = 0;
 
 			switch (stage) {
 			case StageRush: {

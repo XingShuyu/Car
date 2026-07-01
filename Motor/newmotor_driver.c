@@ -175,13 +175,13 @@ void NewMotor_Stop(NewMotor_StopMode mode)
 #endif
 }
 
-float NewMotor_EncoderDeltaToDistanceMm(int32_t delta_counts)
+inline float NewMotor_EncoderDeltaToDistanceMm(int32_t delta_counts)
 {
     float distance_per_count_mm = NEWMOTOR_WHEEL_CIRCUMFERENCE_MM / NEWMOTOR_ENCODER_COUNTS_PER_WHEEL_REV;
     return ((float)delta_counts) * distance_per_count_mm;
 }
 
-float NewMotor_EncoderDeltaToWheelSpeedMmps(int32_t delta_counts, float sample_period_s)
+inline float NewMotor_EncoderDeltaToWheelSpeedMmps(int32_t delta_counts, float sample_period_s)
 {
     if (sample_period_s <= 0.0f) {
         return 0.0f;
