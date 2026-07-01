@@ -100,9 +100,10 @@ int leftDistance, rightDistance;
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
-static void StandupLog_EnqueueString(const char *s);
+#if MOTOR_STEP_TEST_ENABLE
 static void MotorClosedLoopStepTest(void);
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
+#endif
 
 int main(void) {
 	//--------------------------------------
@@ -214,14 +215,10 @@ int main(void) {
 		USART_PollTx();
 		uint32_t nowUs = getNowUs();
 		// 平衡环
-		static float targetBalance = 0.0;
-		if (getTimeUs(nowUs, lastMotorSpeedTime) > 5) {
+		if (getTimeUs(nowUs, lastMotorSpeedTime) > 5000U) {
+			int32_t t = getTimeUs(nowUs, lastMotorSpeedTime);
+			lastMotorSpeedTime = nowUs;
 			IMU_ReadAll(&IMUData);
-			// char temp[21];
-			// sprintf(temp, "Roll:%.2f",IMUData.roll);
-			// Display_ShowString(1, 0, temp);
-			// sprintf(temp, "Gx:%.2f",IMUData.gx);
-			// Display_ShowString(2, 0, temp);
 			float roll = IMUData.roll;
 			float gx = IMUData.gx;
 
@@ -229,7 +226,7 @@ int main(void) {
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 			}
 			else {
-				int outTicks = -(1.0*roll/20.0*2000+0.0*gx);
+				int outTicks = (2.0*roll/20.0*2000-5.0*gx);
 				printf("Back:%d\r\n",outTicks);
 				NewMotor_SetWheelPwmTicks(outTicks, outTicks);
 			}
@@ -610,10 +607,6 @@ int main(void) {
 	}
 }
 
-static void StandupLog_EnqueueString(const char *s) {
-	USART_WriteAsync(s);
-}
-
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
 // 这里做一次分发，避免中断落入默认处理函数导致“卡死”。
 void GROUP1_IRQHandler(void) {
@@ -662,10 +655,11 @@ void GROUP1_IRQHandler(void) {
 // 串口的中断服务函数
 void UART_0_INST_IRQHandler(void) {
 	uint8_t receivedData = 0;
+	DL_UART_IIDX pending = DL_UART_getPendingInterrupt(UART_0_INST);
 
 	// 如果产生了串口中断
 	// If a serial port interrupt occurs
-	switch (DL_UART_getPendingInterrupt(UART_0_INST)) {
+	switch (pending) {
 	case DL_UART_IIDX_RX: // 如果是接收中断	If it is a receive interrupt
 
 		while (!DL_UART_Main_isRXFIFOEmpty(UART_0_INST)) {
@@ -684,6 +678,11 @@ void UART_0_INST_IRQHandler(void) {
 			recv0_flag = 1;
 		}
 
+		break;
+
+	case DL_UART_IIDX_DMA_DONE_TX:
+	case DL_UART_IIDX_EOT_DONE:
+		USART_HandleTxInterrupt(pending);
 		break;
 
 	default: // 其他的串口中断	Other serial port interrupts

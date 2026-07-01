@@ -30,7 +30,7 @@ Main/
 ├── BasicMicroLib/                  # 基础库（与硬件抽象无关的工具）
 │   ├── delay.h / delay.c           # 微秒/毫秒延时 (delay_us, delay_ms)
 │   ├── getTime.h / getTime.c       # SysTick时间基准 (getNowMs, getTimeMs)
-│   ├── usart.h / usart.c           # UART初始化与发送 (USART_Init, USART_SendData)
+│   ├── usart.h / usart.c           # UART初始化与蓝牙串口TX DMA发送
 │   └── PID.h / PID.c               # 通用PID结构体与计算函数 (PID_calculate)
 │
 ├── Motor/                          # 电机驱动与速度闭环
@@ -76,7 +76,7 @@ Main/
 | 主循环 | 两段定时：编码器速度闭环更新 + 阶段状态机 |
 | 阶段switch-case | 根据 `command[StageIndex]` 执行对应阶段逻辑 |
 | `GROUP1_IRQHandler()` | GPIOA/GPIOB 编码器脉冲计数 + 按键中断 |
-| `UART_0_INST_IRQHandler()` | 串口0接收中断（蓝牙数据） |
+| `UART_0_INST_IRQHandler()` | 串口0接收中断（蓝牙数据）+ TX DMA完成 |
 | `UART_MAIXCAM_INST_IRQHandler()` | MaixCAM视觉模块串口接收 |
 | `process_imu_for_horizontal_motion()` | IMU偏航角积分（当前未在主循环启用） |
 | `buzzer_beep()` | 蜂鸣器鸣响3声 |
@@ -205,7 +205,7 @@ SSD1306 I2C驱动，使用 `I2C1` (PB3=SDA, PA17=SCL):
 
 - **delay**: `delay_us()`, `delay_ms()` — 循环延时
 - **getTime**: `getNowMs()`, `getTimeMs()` — SysTick扩展时间戳（防uint32回绕）
-- **usart**: `USART_Init()`, `USART_SendData()` — 串口
+- **usart**: `USART_Init()`, `USART_SendData()`, `USART_WriteAsync()` — 串口；`UART_0` 为蓝牙串口，115200，TX 使用 `DMA_CH0` 搬运环形缓冲到 `UART0->TXDATA`
 - **PID**: `PID_calculate()` — 通用PID计算（位置式，当前较少使用）
 
 ### 3.10 云台 (`Emm/`)
@@ -240,7 +240,7 @@ main()
 | ISR | 触发源 | 功能 |
 |-----|--------|------|
 | `GROUP1_IRQHandler` | GPIOA/GPIOB双边沿 | 编码器AB相脉冲计数 + 按键计数 |
-| `UART_0_INST_IRQHandler` | UART0 RX | 蓝牙串口数据接收 |
+| `UART_0_INST_IRQHandler` | UART0 RX / DMA_DONE_TX | 蓝牙串口数据接收；TX DMA完成后推进发送环形缓冲 |
 | `UART_MAIXCAM_INST_IRQHandler` | UART3 RX | MaixCAM视觉模块数据接收 |
 
 ## 6. 关键数据流
@@ -276,5 +276,8 @@ WDD35D4(PB17 ADC) → raw → 标定/零点/方向 → signed_angle_deg
 - `WDD35D4_DEFAULT_FILTER_ALPHA` 当前为 `0`，表示默认不启用软件低通滤波；如需抑制噪声，调用 `WDD35D4_ReadFilteredRaw(alpha, ...)` 并传入 `0<alpha<=1`。
 - `StageStandUp` 当前分支读取 `WDD35D4_ReadData()` 的 `signed_angle_deg`，即相对竖直零点的有符号角。
 - 编码器计数在 ISR 中累加，主循环原子读取后清零（临界区用 `__disable_irq()`/`__enable_irq()` 保护）
+- 蓝牙串口 `UART_0` 波特率为 115200，时钟源为 BUSCLK，发送为软件环形缓冲 + `DMA_CH0`。`printf/fputc/write` 只入队，`USART_PollTx()` 只在DMA和UART都空闲时启动下一段传输，不再逐字节轮询写TX FIFO。
+- `UART_0_INST_IRQHandler()` 必须保留 `DL_UART_IIDX_DMA_DONE_TX` 和 `DL_UART_IIDX_EOT_DONE` 分支，并调用 `USART_HandleTxInterrupt()`；`DMA_DONE_TX` 只代表数据搬入FIFO，`EOT_DONE` 才代表线上的最后一字节发完。
+- 115200 下连续日志吞吐约 11KB/s；主循环调试 `printf` 必须限速，否则 DMA 环形缓冲会丢字节，蓝牙端表现为断行、错位或类似乱码。
 - 当前 `StartTime`/`nowTime` 为全局变量，`TimeBase_Init()` 初始化 SysTick
 - 四个命令序列 `command0~3` 按按键 `TextIndex` 选择，`TextIndex=3` 时额外选 Goal 终点路线

@@ -3,14 +3,23 @@
 #include <stdio.h>
 
 
-#define RE_0_BUFF_LEN_MAX	128
 #define USART_TX_BUFFER_SIZE 1024U
-#define USART_TX_BUDGET_PER_POLL 16U
+#define USART_TX_DMA_CHAN_ID DMA_CH0_CHAN_ID
 
 static volatile uint8_t usartTxBuffer[USART_TX_BUFFER_SIZE];
 static volatile uint16_t usartTxHead = 0;
 static volatile uint16_t usartTxTail = 0;
+static volatile bool usartTxDmaActive = false;
+static volatile bool usartTxWaitEot = false;
+static volatile uint16_t usartTxDmaLength = 0;
 static volatile uint32_t usartTxDropped = 0;
+
+static void USART_RestoreIrq(uint32_t primask)
+{
+	if (primask == 0U) {
+		__enable_irq();
+	}
+}
 
 static void USART_SendByte_Blocking(UART_Regs *uart, uint8_t data)
 {
@@ -42,25 +51,77 @@ static bool USART_EnqueueByte(uint8_t data)
 	} else {
 		usartTxDropped++;
 	}
-	if (primask == 0U) {
-		__enable_irq();
-	}
+	USART_RestoreIrq(primask);
 
 	return queued;
+}
+
+static void USART_StartTxDmaIfIdle(void)
+{
+	uint32_t primask;
+	uint16_t tail;
+	uint16_t head;
+	uint16_t length;
+
+	primask = __get_PRIMASK();
+	__disable_irq();
+	if (usartTxDmaActive || usartTxWaitEot ||
+		(usartTxTail == usartTxHead) ||
+		DL_UART_Main_isBusy(UART_0_INST) ||
+		!DL_UART_Main_isTXFIFOEmpty(UART_0_INST)) {
+		USART_RestoreIrq(primask);
+		return;
+	}
+
+	tail = usartTxTail;
+	head = usartTxHead;
+	if (head > tail) {
+		length = (uint16_t)(head - tail);
+	} else {
+		length = (uint16_t)(USART_TX_BUFFER_SIZE - tail);
+	}
+
+	usartTxDmaActive = true;
+	usartTxDmaLength = length;
+
+	DL_DMA_disableChannel(DMA, USART_TX_DMA_CHAN_ID);
+	DL_UART_Main_clearInterruptStatus(
+		UART_0_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+						 DL_UART_MAIN_INTERRUPT_EOT_DONE);
+	DL_DMA_setSrcAddr(DMA, USART_TX_DMA_CHAN_ID,
+					  (uint32_t)&usartTxBuffer[tail]);
+	DL_DMA_setDestAddr(DMA, USART_TX_DMA_CHAN_ID,
+					   (uint32_t)&UART_0_INST->TXDATA);
+	DL_DMA_setTransferSize(DMA, USART_TX_DMA_CHAN_ID, length);
+	DL_DMA_enableChannel(DMA, USART_TX_DMA_CHAN_ID);
+
+	USART_RestoreIrq(primask);
 }
 
 void USART_Init(void)
 {
 	usartTxHead = 0;
 	usartTxTail = 0;
+	usartTxDmaActive = false;
+	usartTxWaitEot = false;
+	usartTxDmaLength = 0;
 	usartTxDropped = 0;
 
-	DL_UART_Main_changeConfig(UART_0_INST);
+	DL_DMA_disableChannel(DMA, USART_TX_DMA_CHAN_ID);
+	DL_UART_Main_clearInterruptStatus(
+		UART_0_INST, DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+						 DL_UART_MAIN_INTERRUPT_EOT_DONE |
+						 DL_UART_MAIN_INTERRUPT_RX);
 	DL_UART_Main_enableFIFOs(UART_0_INST);
 	DL_UART_Main_setTXFIFOThreshold(UART_0_INST,
-									DL_UART_MAIN_TX_FIFO_LEVEL_EMPTY);
+									DL_UART_MAIN_TX_FIFO_LEVEL_ONE_ENTRY);
 	DL_UART_Main_setRXFIFOThreshold(UART_0_INST,
 									DL_UART_MAIN_RX_FIFO_LEVEL_ONE_ENTRY);
+	DL_UART_Main_enableDMATransmitEvent(UART_0_INST);
+	DL_UART_Main_enableInterrupt(UART_0_INST,
+								 DL_UART_MAIN_INTERRUPT_RX |
+									 DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
+									 DL_UART_MAIN_INTERRUPT_EOT_DONE);
 	DL_UART_Main_enable(UART_0_INST);
 	//清除串口中断标志
 	//Clear the serial port interrupt flag
@@ -93,13 +154,32 @@ void USART_WriteAsync(const char *str)
 
 void USART_PollTx(void)
 {
-	uint32_t sent = 0;
+	USART_StartTxDmaIfIdle();
+}
 
-	while ((sent < USART_TX_BUDGET_PER_POLL) && (usartTxTail != usartTxHead) &&
-		   !DL_UART_Main_isTXFIFOFull(UART_0_INST)) {
-		DL_UART_Main_transmitData(UART_0_INST, usartTxBuffer[usartTxTail]);
-		usartTxTail = (uint16_t)((usartTxTail + 1U) % USART_TX_BUFFER_SIZE);
-		sent++;
+void USART_HandleTxInterrupt(DL_UART_IIDX iidx)
+{
+	if (iidx == DL_UART_IIDX_DMA_DONE_TX) {
+		uint32_t primask;
+
+		primask = __get_PRIMASK();
+		__disable_irq();
+		if (usartTxDmaActive) {
+			usartTxTail = (uint16_t)((usartTxTail + usartTxDmaLength) %
+									 USART_TX_BUFFER_SIZE);
+			usartTxDmaLength = 0U;
+			usartTxDmaActive = false;
+			usartTxWaitEot = true;
+		}
+		USART_RestoreIrq(primask);
+	} else if (iidx == DL_UART_IIDX_EOT_DONE) {
+		uint32_t primask;
+
+		primask = __get_PRIMASK();
+		__disable_irq();
+		usartTxWaitEot = false;
+		USART_RestoreIrq(primask);
+		USART_StartTxDmaIfIdle();
 	}
 }
 
