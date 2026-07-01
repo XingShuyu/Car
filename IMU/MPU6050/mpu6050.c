@@ -6,18 +6,36 @@
 #include "mpu6050.h"
 #include "ti/driverlib/dl_i2c.h"
 #include "BasicMicroLib/delay.h"
+#include "BasicMicroLib/getTime.h"
 #include <math.h>
 #include <stddef.h>
 
 #define MPU6050_I2C_TIMEOUT_LOOPS      (1000000u)
 #define MPU6050_RESET_DELAY_LOOPS      (100000u)
 #define MPU6050_CALIB_DELAY_LOOPS      (1000u)
+#define MPU6050_RAD_TO_DEG             (57.2957795f)
+#define MPU6050_KALMAN_Q_ANGLE_DEFAULT (0.003f)
+#define MPU6050_KALMAN_Q_BIAS_DEFAULT  (0.005f)
+#define MPU6050_KALMAN_R_MEASURE_DEFAULT (0.15f)
+#define MPU6050_KALMAN_DT_DEFAULT_S    (0.01f)
+#define MPU6050_KALMAN_DT_MAX_S        (0.2f)
+#define MPU6050_ACCEL_MIN_NORM_G       (0.05f)
 
 typedef struct {
     float x;
     float y;
     float z;
 } MPU6050_AccelOffset_t;
+
+typedef struct {
+    float angle;
+    float bias;
+    float p00;
+    float p01;
+    float p10;
+    float p11;
+    bool ready;
+} MPU6050_Kalman1D_t;
 
 static float s_accelScale = 1.0f / 16384.0f;
 static float s_gyroScale = 1.0f / 131.0f;
@@ -29,6 +47,12 @@ static float s_gyroDeadzoneDps = 0.05f;
 static float s_accelDeadzoneG = 0.0f;
 static JY901S_Data_t s_prevFiltered = {0};
 static bool s_filterReady = false;
+static MPU6050_Kalman1D_t s_rollKalman = {0};
+static MPU6050_Kalman1D_t s_pitchKalman = {0};
+static float s_kalmanQAngle = MPU6050_KALMAN_Q_ANGLE_DEFAULT;
+static float s_kalmanQBias = MPU6050_KALMAN_Q_BIAS_DEFAULT;
+static float s_kalmanRMeasure = MPU6050_KALMAN_R_MEASURE_DEFAULT;
+static uint32_t s_kalmanLastUs = 0u;
 
 static void delay_loop(uint32_t loops)
 {
@@ -40,6 +64,13 @@ static void delay_loop(uint32_t loops)
 static int16_t make_i16(uint8_t high, uint8_t low)
 {
     return (int16_t)(((uint16_t)high << 8) | low);
+}
+
+static void reset_kalman_state(void)
+{
+    s_rollKalman = (MPU6050_Kalman1D_t){0};
+    s_pitchKalman = (MPU6050_Kalman1D_t){0};
+    s_kalmanLastUs = 0u;
 }
 
 static float accel_scale_from_fs(MPU6050_AccelFS_t fs)
@@ -78,6 +109,100 @@ static void reset_filter_state(void)
 {
     s_prevFiltered = (JY901S_Data_t){0};
     s_filterReady = false;
+    reset_kalman_state();
+}
+
+static float kalman_update(
+    MPU6050_Kalman1D_t *state, float measuredAngle, float gyroRate, float dt)
+{
+    float rate;
+    float s;
+    float k0;
+    float k1;
+    float y;
+    float p00Temp;
+    float p01Temp;
+
+    if (!state->ready) {
+        state->angle = measuredAngle;
+        state->bias = 0.0f;
+        state->p00 = 0.0f;
+        state->p01 = 0.0f;
+        state->p10 = 0.0f;
+        state->p11 = 0.0f;
+        state->ready = true;
+        return state->angle;
+    }
+
+    rate = gyroRate - state->bias;
+    state->angle += dt * rate;
+
+    state->p00 += dt * (dt * state->p11 - state->p01 - state->p10 +
+                         s_kalmanQAngle);
+    state->p01 -= dt * state->p11;
+    state->p10 -= dt * state->p11;
+    state->p11 += s_kalmanQBias * dt;
+
+    s = state->p00 + s_kalmanRMeasure;
+    if (s <= 0.0f) {
+        return state->angle;
+    }
+
+    k0 = state->p00 / s;
+    k1 = state->p10 / s;
+    y = measuredAngle - state->angle;
+    state->angle += k0 * y;
+    state->bias += k1 * y;
+
+    p00Temp = state->p00;
+    p01Temp = state->p01;
+    state->p00 -= k0 * p00Temp;
+    state->p01 -= k0 * p01Temp;
+    state->p10 -= k1 * p00Temp;
+    state->p11 -= k1 * p01Temp;
+
+    return state->angle;
+}
+
+static void update_kalman_angles(
+    JY901S_Data_t *data, float accelAx, float accelAy, float accelAz)
+{
+    uint32_t nowUs;
+    float dt;
+    float accelNorm;
+    float accelRoll;
+    float accelPitch;
+
+    accelNorm = sqrtf(accelAx * accelAx + accelAy * accelAy +
+                      accelAz * accelAz);
+    if (accelNorm < MPU6050_ACCEL_MIN_NORM_G) {
+        return;
+    }
+
+    nowUs = getNowUs();
+    if (s_kalmanLastUs == 0u) {
+        dt = MPU6050_KALMAN_DT_DEFAULT_S;
+    } else {
+        dt = (float)getTimeUs(nowUs, s_kalmanLastUs) / 1000000.0f;
+        if ((dt <= 0.0f) || (dt > MPU6050_KALMAN_DT_MAX_S)) {
+            dt = MPU6050_KALMAN_DT_DEFAULT_S;
+        }
+    }
+    s_kalmanLastUs = nowUs;
+
+    /*
+     * Current car mounting: left/right lean is rotation around sensor X.
+     * AX therefore changes mainly on front/back pitch; roll must use AY/AZ
+     * as the gravity reference and GX as the angular-rate input.
+     */
+    accelRoll = atan2f(accelAy, accelAz) * MPU6050_RAD_TO_DEG;
+    accelPitch = atan2f(-accelAx, sqrtf(accelAy * accelAy +
+                                         accelAz * accelAz)) *
+                 MPU6050_RAD_TO_DEG;
+
+    data->roll = kalman_update(&s_rollKalman, accelRoll, data->gx, dt);
+    data->pitch = kalman_update(&s_pitchKalman, accelPitch, data->gy, dt);
+    data->validMask |= IMU_VALID_ROLL | IMU_VALID_PITCH;
 }
 
 static bool i2c_wait_idle(void)
@@ -432,6 +557,8 @@ bool MPU6050_ReadAll(JY901S_Data_t *out)
     out->pitch = 0.0f;
     out->yaw = 0.0f;
     out->temp = (float)rawTemp / 340.0f + 36.53f;
+    out->validMask = IMU_VALID_ACCEL | IMU_VALID_GYRO | IMU_VALID_TEMP;
+    out->sourceMask = IMU_DEVICE_MASK_MPU6050;
     return true;
 }
 
@@ -537,12 +664,20 @@ void MPU6050_SetFilterParam(float alpha, float deadzone)
 
 bool MPU6050_ReadAllCalibrated(JY901S_Data_t *out)
 {
+    float accelAxForAngle;
+    float accelAyForAngle;
+    float accelAzForAngle;
+
     if (out == NULL) {
         return false;
     }
     if (!MPU6050_ReadAll(out)) {
         return false;
     }
+
+    accelAxForAngle = out->ax;
+    accelAyForAngle = out->ay;
+    accelAzForAngle = out->az;
 
     apply_gyro_offset(out);
     apply_accel_offset(out);
@@ -553,5 +688,7 @@ bool MPU6050_ReadAllCalibrated(JY901S_Data_t *out)
     out->ay = apply_deadzone(out->ay, s_accelDeadzoneG);
     out->az = apply_deadzone(out->az, s_accelDeadzoneG);
     apply_filter(out);
+    update_kalman_angles(
+        out, accelAxForAngle, accelAyForAngle, accelAzForAngle);
     return true;
 }

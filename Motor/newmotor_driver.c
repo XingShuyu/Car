@@ -36,11 +36,11 @@ int16_t NewMotor_ClampSignedPwmTicks(int16_t ticks)
     return ticks;
 }
 
-int16_t NewMotor_ApplyDeadzoneTicks(int16_t ticks)
+int16_t NewMotor_ApplyLetfDeadzoneTicks(int16_t ticks)
 {
     int16_t clamped = NewMotor_ClampSignedPwmTicks(ticks);
     if (clamped > 0) {
-        int32_t out = (int32_t)clamped + NEWMOTOR_PWM_DEADZONE_TICKS;
+        int32_t out = (int32_t)clamped + NEWMOTOR_PWM_LEFT_DEADZONE_TICKS;
         if (out > NEWMOTOR_PWM_MAX_TICKS) {
             out = NEWMOTOR_PWM_MAX_TICKS;
         }
@@ -48,7 +48,29 @@ int16_t NewMotor_ApplyDeadzoneTicks(int16_t ticks)
     }
 
     if (clamped < 0) {
-        int32_t out = (int32_t)clamped - NEWMOTOR_PWM_DEADZONE_TICKS;
+        int32_t out = (int32_t)clamped - NEWMOTOR_PWM_LEFT_DEADZONE_TICKS;
+        if (out < -NEWMOTOR_PWM_MAX_TICKS) {
+            out = -NEWMOTOR_PWM_MAX_TICKS;
+        }
+        return (int16_t)out;
+    }
+
+    return 0;
+}
+
+int16_t NewMotor_ApplyRightDeadzoneTicks(int16_t ticks)
+{
+    int16_t clamped = NewMotor_ClampSignedPwmTicks(ticks);
+    if (clamped > 0) {
+        int32_t out = (int32_t)clamped + NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS;
+        if (out > NEWMOTOR_PWM_MAX_TICKS) {
+            out = NEWMOTOR_PWM_MAX_TICKS;
+        }
+        return (int16_t)out;
+    }
+
+    if (clamped < 0) {
+        int32_t out = (int32_t)clamped - NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS;
         if (out < -NEWMOTOR_PWM_MAX_TICKS) {
             out = -NEWMOTOR_PWM_MAX_TICKS;
         }
@@ -131,8 +153,8 @@ void NewMotor_SetWheelPwmTicksRaw(int16_t left_ticks, int16_t right_ticks)
 
 void NewMotor_SetWheelPwmTicks(int16_t left_ticks, int16_t right_ticks)
 {
-    int16_t left = NewMotor_ApplyDeadzoneTicks(left_ticks);
-    int16_t right = NewMotor_ApplyDeadzoneTicks(right_ticks);
+    int16_t left = NewMotor_ApplyLetfDeadzoneTicks(left_ticks);
+    int16_t right = NewMotor_ApplyRightDeadzoneTicks(right_ticks);
     NewMotor_SetWheelPwmTicksRaw(left, right);
 }
 

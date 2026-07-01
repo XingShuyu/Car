@@ -38,8 +38,12 @@ extern "C" {
 #endif
 #endif
 
-#ifndef NEWMOTOR_PWM_DEADZONE_TICKS
-#define NEWMOTOR_PWM_DEADZONE_TICKS (75)
+#ifndef NEWMOTOR_PWM_LEFT_DEADZONE_TICKS
+#define NEWMOTOR_PWM_LEFT_DEADZONE_TICKS (125)
+#endif
+
+#ifndef NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS
+#define NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS (115)
 #endif
 
 /* -----------------------------

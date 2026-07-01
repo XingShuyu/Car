@@ -27,8 +27,10 @@
 #define JY901S_I2C_INST I2C0
 #endif
 
-/* Default WIT I2C 7-bit address. */
+/* Default WIT I2C 7-bit address. Override this if the module address changed. */
+#ifndef JY901S_ADDR
 #define JY901S_ADDR (0x50u)
+#endif
 
 /* Common WIT register map. */
 #define JY901S_REG_SAVE       (0x00u)

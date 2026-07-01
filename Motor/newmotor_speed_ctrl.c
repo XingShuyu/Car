@@ -57,10 +57,12 @@ void NewMotorSpeedCtrl_Init(NewMotor_SpeedCtrl *ctrl, float sample_period_s)
     ctrl->pid_left.ki = 0.0f;
     ctrl->pid_left.kd = 0.01f;
     ctrl->pid_left.target_mmps = 0.0f;
-    ctrl->pid_left.out_min_ticks = -(float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_DEADZONE_TICKS);
-    ctrl->pid_left.out_max_ticks = (float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_DEADZONE_TICKS);
+    ctrl->pid_left.out_min_ticks = -(float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_LEFT_DEADZONE_TICKS);
+    ctrl->pid_left.out_max_ticks = (float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_LEFT_DEADZONE_TICKS);
 
     ctrl->pid_right = ctrl->pid_left;
+    ctrl->pid_right.out_min_ticks = -(float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS);
+    ctrl->pid_right.out_max_ticks = (float)(NEWMOTOR_PWM_MAX_TICKS - NEWMOTOR_PWM_RIGHT_DEADZONE_TICKS);
 
     nm_pid_reset(&ctrl->pid_left);
     nm_pid_reset(&ctrl->pid_right);

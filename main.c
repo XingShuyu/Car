@@ -31,15 +31,6 @@
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
-#define MOTOR_STEP_TEST_TARGET_MMPS 500.0f
-#define MOTOR_STEP_TEST_CONTROL_PERIOD_US 500U
-#define MOTOR_STEP_TEST_MEASURE_WINDOW_US 1000U
-#define MOTOR_STEP_TEST_TIMEOUT_MS 5000U
-#define MOTOR_STEP_TEST_REACHED_RATIO 0.95f
-#define MOTOR_STEP_TEST_ABS_TOL_MMPS 25.0f
-#define MOTOR_STEP_TEST_STABLE_TIME_MS 500U
-#define MOTOR_STEP_TEST_LOG_INTERVAL_MS 100U
-#define MOTOR_STEP_TEST_PWM_SAT_TICKS 2000
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -149,7 +140,8 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
 	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
@@ -161,13 +153,26 @@ int main(void) {
 		int temp = 0;
 		temp = IMU_Init();
 		if (temp) {
-			if (temp == 1) {
-				Display_ShowString(0, 0, "HWT101 Ready");
-			} else if (temp == 2) {
-				Display_ShowString(0, 0, "JY901S Ready");
-			} else if (temp == 3) {
-				Display_ShowString(0, 0, "MPU6050 Ready");
+			char imuLine[20] = "IMU:";
+			bool needSlash = false;
+			if ((temp & IMU_DEVICE_MASK_HWT101) != 0) {
+				strcat(imuLine, "HWT");
+				needSlash = true;
 			}
+			if ((temp & IMU_DEVICE_MASK_JY901S) != 0) {
+				if (needSlash) {
+					strcat(imuLine, "/");
+				}
+				strcat(imuLine, "JY");
+				needSlash = true;
+			}
+			if ((temp & IMU_DEVICE_MASK_MPU6050) != 0) {
+				if (needSlash) {
+					strcat(imuLine, "/");
+				}
+				strcat(imuLine, "MPU");
+			}
+			Display_ShowString(0, 0, imuLine);
 		} else {
 			Display_ShowString(0, 0, "IMU Faid");
 		}
@@ -176,13 +181,13 @@ int main(void) {
 
 	// 获取启动时间tick
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
-	delay_ms(2000);
+	delay_ms(500);
 	Display_Clear();
 	IMU_ZeroYaw();
 	startTime = getNowMs();
 	// int TempIndex = 0;
 	TextIndex = 0;
-	while (getTimeMs(getNowMs(), startTime) < 3000) {
+	while (getTimeMs(getNowMs(), startTime) < 1000) {
 		char str[8];
 		sprintf(str, "set: %d", TextIndex);
 		Display_ShowString(0, 0, str);
@@ -191,7 +196,7 @@ int main(void) {
 	if (TextIndex == 3) {
 		TextIndex = 0;
 		startTime = getNowMs();
-		while (getTimeMs(getNowMs(), startTime) < 3000) {
+		while (getTimeMs(getNowMs(), startTime) < 1000) {
 			char str[8];
 			sprintf(str, "goal: %d", TextIndex);
 			Display_ShowString(0, 0, str);
@@ -202,42 +207,32 @@ int main(void) {
 	buzzer_beep();
 	lastIMUTime = getNowMs();
 	lastStageTime = getNowMs();
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 40, 40);
 
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		USART_PollTx();
-		// 每30ms获取电机运行圈数
 		uint32_t nowUs = getNowUs();
-		if (getTimeUs(nowUs, lastMotorSpeedTime) > 100) {
-			int32_t leftCountSnapshot;
-			int32_t rightCountSnapshot;
-			motor.sample_period_s =
-				(float)getTimeUs(nowUs, lastMotorSpeedTime) / 1000000.0f;
-			lastMotorSpeedTime = nowUs;
+		// 平衡环
+		static float targetBalance = 0.0;
+		if (getTimeUs(nowUs, lastMotorSpeedTime) > 5) {
+			IMU_ReadAll(&IMUData);
+			// char temp[21];
+			// sprintf(temp, "Roll:%.2f",IMUData.roll);
+			// Display_ShowString(1, 0, temp);
+			// sprintf(temp, "Gx:%.2f",IMUData.gx);
+			// Display_ShowString(2, 0, temp);
+			float roll = IMUData.roll;
+			float gx = IMUData.gx;
 
-			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
-			__disable_irq();
-			leftCountSnapshot = motorLeftCount;
-			rightCountSnapshot = motorRightCount;
-			motorLeftCount = 0;
-			motorRightCount = 0;
-			__enable_irq();
-			leftDistance += leftCountSnapshot;
-			rightDistance += rightCountSnapshot;
-
-			int sped =
-				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
-					  motor.sample_period_s);
-			if (getTimeMs(nowTime, lastUartTime) >=
-				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
-				lastUartTime = nowTime;
-				printf("Back:%d\n", sped);
+			if(roll>10||roll<-10){
+				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 			}
-
-			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
-												   rightCountSnapshot);
+			else {
+				int outTicks = -(1.0*roll/20.0*2000+0.0*gx);
+				printf("Back:%d\r\n",outTicks);
+				NewMotor_SetWheelPwmTicks(outTicks, outTicks);
+			}
 		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
@@ -543,148 +538,6 @@ int main(void) {
 				}
 				break;
 			}
-			case StageStandUp: {
-				static float lastAngleError = 0.0f;
-				static float angleRateFiltered = 0.0f;
-				static float standupPositionM = 0.0f;
-				static uint32_t lastStandupLogTime = 0;
-				static uint32_t lastStandupDisplayTime = 0;
-				static bool hasLastAngle = false;
-				static bool standupLogHeaderPrinted = false;
-
-				if (StageFlag == 0) {
-					__disable_irq();
-					motorLeftCount = 0;
-					motorRightCount = 0;
-					__enable_irq();
-					standupPositionM = 0.0f;
-					lastStandupLogTime = nowTime;
-					lastStandupDisplayTime = nowTime;
-					lastAngleError = 0.0f;
-					angleRateFiltered = 0.0f;
-					hasLastAngle = false;
-					if (!standupLogHeaderPrinted) {
-						StandupLog_EnqueueString("theta_mrad,theta_dot_mradps,"
-												 "pos_mm,vel_mmps,pwm\r\n");
-						standupLogHeaderPrinted = true;
-					}
-					StageFlag = 1;
-				}
-
-				if (WDD35D4_ReadData(&WDD35D4Data)) {
-					int32_t leftCountSnapshot;
-					int32_t rightCountSnapshot;
-					float dt =
-						(float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
-					if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
-						dt = DT_SAMPLE;
-					}
-
-					__disable_irq();
-					leftCountSnapshot = motorLeftCount;
-					rightCountSnapshot = motorRightCount;
-					motorLeftCount = 0;
-					motorRightCount = 0;
-					__enable_irq();
-
-					float angleError = WDD35D4Data.signed_angle_deg;
-					float angleRate = 0.0f;
-					float leftDistanceM =
-						NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
-						1000.0f;
-					float rightDistanceM =
-						NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
-						1000.0f;
-					float standupDeltaM =
-						0.5f * (leftDistanceM + rightDistanceM);
-					float standupVelocityMps = standupDeltaM / dt;
-					int16_t pwmTicks = 0;
-					float angelSize, angleRateSize, angelPolarity = 1,
-													angelRatePolarity = 1;
-					if (angleError < 0) {
-						angelSize = -angleError;
-						angelPolarity = -1;
-					} else {
-						angelSize = angleError;
-					}
-
-					standupPositionM += standupDeltaM;
-					if (hasLastAngle) {
-						angleRate = (angleError - lastAngleError) / dt;
-					} else {
-						hasLastAngle = true;
-					}
-					if (angleRate < 0) {
-						angleRateSize = -angleRate;
-						angelRatePolarity = -1;
-					}
-					angleRateFiltered += STANDUP_D_FILTER_ALPHA *
-										 (angleRate - angleRateFiltered);
-					lastAngleError = angleError;
-
-					if (angleError > -STANDUP_SAFE_ANGLE_DEG &&
-						angleError < STANDUP_SAFE_ANGLE_DEG) {
-
-						float pwmOut =
-							(STANDUP_KP_TICKS_PER_DEG * angleError * PDNum) +
-							(STANDUP_KD_TICKS_PER_DEGPS * angleRate * PDNum) +
-							(angelPolarity *
-							 pow(STANDUP_KG_TICKS_PER_DEGPS, angelSize) *
-							 PDNum) +
-							(angelRatePolarity *
-							 pow(STANDUP_KGD_TICKS_PER_DEGPS, angleRateSize) *
-							 PDNum);
-						if (pwmOut > (float)STANDUP_PWM_LIMIT_TICKS) {
-							pwmOut = (float)STANDUP_PWM_LIMIT_TICKS;
-						} else if (pwmOut < (float)-STANDUP_PWM_LIMIT_TICKS) {
-							pwmOut = (float)-STANDUP_PWM_LIMIT_TICKS;
-						}
-
-						pwmTicks = (int16_t)pwmOut;
-
-						if (getTimeMs(nowTime, lastStandupDisplayTime) >=
-							STANDUP_DISPLAY_INTERVAL_MS) {
-							// char str[16];
-							// sprintf(str, "pwm:%d", pwmTicks);
-							// Display_ShowString(1, 0, str);
-							lastStandupDisplayTime = nowTime;
-						}
-						NewMotor_SetWheelPwmTicks(pwmTicks, pwmTicks);
-					} else {
-						NewMotor_SetWheelPwmTicks(0, 0);
-						lastAngleError = 0.0f;
-						angleRateFiltered = 0.0f;
-						hasLastAngle = false;
-					}
-
-					// if (getTimeMs(nowTime, lastStandupLogTime) >=
-					// 	STANDUP_LOG_INTERVAL_MS) {
-					// 	int32_t thetaMrad =
-					// 		(int32_t)(angleError * DEG_TO_RAD * 1000.0f);
-					// 	int32_t thetaDotMradps =
-					// 		(int32_t)(angleRateFiltered * DEG_TO_RAD *
-					// 				  1000.0f);
-					// 	int32_t posMm = (int32_t)(standupPositionM * 1000.0f);
-					// 	int32_t velMmps =
-					// 		(int32_t)(standupVelocityMps * 1000.0f);
-					// 	char logLine[56];
-
-					// 	snprintf(logLine, sizeof(logLine),
-					// 			 "%ld,%ld,%ld,%ld,%d\r\n", (long)thetaMrad,
-					// 			 (long)thetaDotMradps, (long)posMm,
-					// 			 (long)velMmps, (int)pwmTicks);
-					// 	StandupLog_EnqueueString(logLine);
-					// 	lastStandupLogTime = nowTime;
-					// }
-				} else {
-					NewMotor_SetWheelPwmTicks(0, 0);
-					lastAngleError = 0.0f;
-					angleRateFiltered = 0.0f;
-					hasLastAngle = false;
-				}
-
-				break;
-			}
 			case StageSkip: {
 				// StageSkip
 				int offset = (3 - Goal) * 3;
@@ -759,265 +612,6 @@ int main(void) {
 
 static void StandupLog_EnqueueString(const char *s) {
 	USART_WriteAsync(s);
-}
-
-static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps) {
-	float absTarget = fabsf(target_mmps);
-	float absMeasured = fabsf(measured_mmps);
-	float tolerance = absTarget * (1.0f - MOTOR_STEP_TEST_REACHED_RATIO);
-
-	if (tolerance < MOTOR_STEP_TEST_ABS_TOL_MMPS) {
-		tolerance = MOTOR_STEP_TEST_ABS_TOL_MMPS;
-	}
-
-	return fabsf(absTarget - absMeasured) <= tolerance;
-}
-
-static void MotorClosedLoopStepTest(void) {
-	const float targetMmps = MOTOR_STEP_TEST_TARGET_MMPS;
-	uint32_t commandTimeUs;
-	uint32_t firstMoveTimeUs = 0;
-	uint32_t reachedTimeUs = 0;
-	uint32_t stableStartTimeUs = 0;
-	uint32_t lastUpdateUs;
-	uint32_t lastLogMs;
-	uint32_t updateCount = 0;
-	uint32_t lastActualPeriodUs = 0;
-	uint32_t measureWindowUs = 0;
-	int32_t measureLeftCount = 0;
-	int32_t measureRightCount = 0;
-	int32_t lastLeftCount = 0;
-	int32_t lastRightCount = 0;
-	float lastLeftMmps = 0.0f;
-	float lastRightMmps = 0.0f;
-	float lastAvgMmps = 0.0f;
-	float lastWindowLeftMmps = 0.0f;
-	float lastWindowRightMmps = 0.0f;
-	float lastWindowAvgMmps = 0.0f;
-	int16_t lastLeftPwm = 0;
-	int16_t lastRightPwm = 0;
-	bool firstMoveSeen = false;
-	bool stableTiming = false;
-	bool reached = false;
-	bool pwmSaturated = false;
-
-	__disable_irq();
-	motorLeftCount = 0;
-	motorRightCount = 0;
-	__enable_irq();
-	leftDistance = 0;
-	rightDistance = 0;
-
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
-	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-	delay_ms(300);
-
-	Display_Clear();
-	Display_ShowString(0, 0, "Motor Step Test");
-	{
-		char oledLine[22];
-		snprintf(oledLine, sizeof(oledLine), "Target:%d mm/s",
-				 (int)targetMmps);
-		Display_ShowString(2, 0, oledLine);
-	}
-	Display_ShowString(4, 0, "Measuring...");
-
-	__disable_irq();
-	motorLeftCount = 0;
-	motorRightCount = 0;
-	__enable_irq();
-
-	commandTimeUs = getNowUs();
-	lastUpdateUs = commandTimeUs;
-	lastLogMs = getNowMs();
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, targetMmps, targetMmps);
-
-	while (getTimeUs(getNowUs(), commandTimeUs) <
-		   (MOTOR_STEP_TEST_TIMEOUT_MS * 1000U)) {
-		uint32_t nowUs = getNowUs();
-		uint32_t nowMs = getNowMs();
-
-		USART_PollTx();
-
-		if (getTimeUs(nowUs, lastUpdateUs) >=
-			MOTOR_STEP_TEST_CONTROL_PERIOD_US) {
-			int32_t leftCountSnapshot;
-			int32_t rightCountSnapshot;
-			float leftMmps;
-			float rightMmps;
-			float avgMmps;
-			int16_t leftPwm;
-			int16_t rightPwm;
-			bool measureWindowReady = false;
-
-			motor.sample_period_s =
-				(float)getTimeUs(nowUs, lastUpdateUs) / 1000000.0f;
-			lastActualPeriodUs = getTimeUs(nowUs, lastUpdateUs);
-			lastUpdateUs = nowUs;
-			updateCount++;
-
-			__disable_irq();
-			leftCountSnapshot = motorLeftCount;
-			rightCountSnapshot = motorRightCount;
-			motorLeftCount = 0;
-			motorRightCount = 0;
-			__enable_irq();
-
-			leftDistance += leftCountSnapshot;
-			rightDistance += rightCountSnapshot;
-			measureLeftCount += leftCountSnapshot;
-			measureRightCount += rightCountSnapshot;
-			measureWindowUs += lastActualPeriodUs;
-
-			if (!firstMoveSeen &&
-				(leftCountSnapshot != 0 || rightCountSnapshot != 0)) {
-				firstMoveSeen = true;
-				firstMoveTimeUs = nowUs;
-			}
-
-			NewMotorSpeedCtrl_UpdateByEncoderDelta(
-				&motor, leftCountSnapshot, rightCountSnapshot);
-			NewMotorSpeedCtrl_GetMeasuredWheelMmps(&motor, &leftMmps,
-												   &rightMmps);
-			NewMotorSpeedCtrl_GetOutputPwmTicks(&motor, &leftPwm, &rightPwm);
-			avgMmps = NewMotor_LeftRightToLinearSpeedMmps(leftMmps, rightMmps);
-			lastLeftCount = leftCountSnapshot;
-			lastRightCount = rightCountSnapshot;
-			lastLeftMmps = leftMmps;
-			lastRightMmps = rightMmps;
-			lastAvgMmps = avgMmps;
-			lastLeftPwm = leftPwm;
-			lastRightPwm = rightPwm;
-			if (leftPwm >= MOTOR_STEP_TEST_PWM_SAT_TICKS ||
-				leftPwm <= -MOTOR_STEP_TEST_PWM_SAT_TICKS ||
-				rightPwm >= MOTOR_STEP_TEST_PWM_SAT_TICKS ||
-				rightPwm <= -MOTOR_STEP_TEST_PWM_SAT_TICKS) {
-				pwmSaturated = true;
-			}
-
-			if (measureWindowUs >= MOTOR_STEP_TEST_MEASURE_WINDOW_US) {
-				float measureWindowS = (float)measureWindowUs / 1000000.0f;
-				lastWindowLeftMmps =
-					NewMotor_EncoderDeltaToDistanceMm(measureLeftCount) /
-					measureWindowS;
-				lastWindowRightMmps =
-					NewMotor_EncoderDeltaToDistanceMm(measureRightCount) /
-					measureWindowS;
-				lastWindowAvgMmps = NewMotor_LeftRightToLinearSpeedMmps(
-					lastWindowLeftMmps, lastWindowRightMmps);
-				measureLeftCount = 0;
-				measureRightCount = 0;
-				measureWindowUs = 0;
-				measureWindowReady = true;
-			}
-
-			if (measureWindowReady) {
-				if (MotorStepTest_IsReached(lastWindowAvgMmps, targetMmps)) {
-					if (!stableTiming) {
-						stableTiming = true;
-						stableStartTimeUs = nowUs;
-						reachedTimeUs = nowUs;
-					}
-					if (getTimeUs(nowUs, stableStartTimeUs) >=
-						(MOTOR_STEP_TEST_STABLE_TIME_MS * 1000U)) {
-						reached = true;
-						break;
-					}
-				} else {
-					stableTiming = false;
-				}
-			}
-
-			if (getTimeMs(nowMs, lastLogMs) >=
-				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
-				lastLogMs = nowMs;
-				printf("Step t=%lu ms L=%d R=%d Avg=%d WinAvg=%d PWM=%d,%d Cnt=%ld,%ld dt=%lu us\n",
-					   (unsigned long)(getTimeUs(nowUs, commandTimeUs) / 1000U),
-					   (int)leftMmps, (int)rightMmps, (int)avgMmps,
-					   (int)lastWindowAvgMmps, leftPwm, rightPwm,
-					   (long)leftCountSnapshot,
-					   (long)rightCountSnapshot,
-					   (unsigned long)lastActualPeriodUs);
-			}
-		}
-	}
-
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
-	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-
-	if (reached) {
-		uint32_t commandToTargetMs =
-			getTimeUs(reachedTimeUs, commandTimeUs) / 1000U;
-		uint32_t motorStartToTargetMs =
-			firstMoveSeen ? (getTimeUs(reachedTimeUs, firstMoveTimeUs) /
-							 1000U)
-						  : 0U;
-		char oledLine[22];
-
-		Display_Clear();
-		Display_ShowString(0, 0, "Step Test Done");
-		Display_ShowString(2, 0, "Reached");
-		snprintf(oledLine, sizeof(oledLine), "Cmd:%lu ms",
-				 (unsigned long)commandToTargetMs);
-		Display_ShowString(4, 0, oledLine);
-		if (firstMoveSeen) {
-			snprintf(oledLine, sizeof(oledLine), "Run:%lu ms",
-					 (unsigned long)motorStartToTargetMs);
-			Display_ShowString(6, 0, oledLine);
-		} else {
-			Display_ShowString(6, 0, "Run:no edge");
-		}
-		snprintf(oledLine, sizeof(oledLine), "PWM:%s",
-				 pwmSaturated ? "Hit 2000" : "No limit");
-		Display_ShowString(7, 0, oledLine);
-	} else {
-		char oledLine[22];
-		uint32_t elapsedMs = getTimeUs(getNowUs(), commandTimeUs) / 1000U;
-		float oneCountMmps =
-			NewMotor_EncoderDeltaToDistanceMm(1) /
-			((float)MOTOR_STEP_TEST_CONTROL_PERIOD_US / 1000000.0f);
-		float oneCountWindowMmps =
-			NewMotor_EncoderDeltaToDistanceMm(1) /
-			((float)MOTOR_STEP_TEST_MEASURE_WINDOW_US / 1000000.0f);
-
-
-		Display_Clear();
-		Display_ShowString(0, 0, "Step Test Done");
-		Display_ShowString(2, 0, "Timeout");
-		snprintf(oledLine, sizeof(oledLine), "T:%d A:%d",
-				 (int)targetMmps, (int)lastWindowAvgMmps);
-		Display_ShowString(4, 0, oledLine);
-		snprintf(oledLine, sizeof(oledLine), "PWM:%d,%d", lastLeftPwm,
-				 lastRightPwm);
-		Display_ShowString(6, 0, oledLine);
-		snprintf(oledLine, sizeof(oledLine), "PWM:%s",
-				 pwmSaturated ? "Hit 2000" : "No limit");
-		Display_ShowString(7, 0, oledLine);
-
-		printf("Step Timeout target=%d elapsed=%lu ms updates=%lu last_dt=%lu us\n",
-			   (int)targetMmps, (unsigned long)elapsedMs,
-			   (unsigned long)updateCount, (unsigned long)lastActualPeriodUs);
-		printf("Step Final instant_left=%d instant_right=%d instant_avg=%d window_left=%d window_right=%d window_avg=%d pwm=%d,%d last_cnt=%ld,%ld total_cnt=%ld,%ld\n",
-			   (int)lastLeftMmps, (int)lastRightMmps,
-			   (int)lastAvgMmps, (int)lastWindowLeftMmps,
-			   (int)lastWindowRightMmps, (int)lastWindowAvgMmps,
-			   lastLeftPwm, lastRightPwm,
-			   (long)lastLeftCount, (long)lastRightCount,
-			   (long)leftDistance, (long)rightDistance);
-		printf("Step PWM saturated=%s threshold=%d\n",
-			   pwmSaturated ? "yes" : "no",
-			   MOTOR_STEP_TEST_PWM_SAT_TICKS);
-		printf("Step Resolution control_period=%lu us one_count=%d mm/s measure_window=%lu us window_one_count=%d mm/s dropped_tx=%lu\n",
-			   (unsigned long)MOTOR_STEP_TEST_CONTROL_PERIOD_US,
-			   (int)(oneCountMmps + 0.5f),
-			   (unsigned long)MOTOR_STEP_TEST_MEASURE_WINDOW_US,
-			   (int)(oneCountWindowMmps + 0.5f),
-			   (unsigned long)USART_GetDroppedTxBytes());
-	}
-
-	while (1) {
-		USART_PollTx();
-	}
 }
 
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，

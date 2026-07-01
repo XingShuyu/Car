@@ -452,6 +452,10 @@ void JY901S_ConvertRaw(const JY901S_RawData_t *raw, JY901S_Data_t *out)
     out->pitch = (float)raw->pitch * JY901S_RAW_ANGLE_TO_DEG;
     out->yaw = (float)raw->yaw * JY901S_RAW_ANGLE_TO_DEG;
     out->temp = (float)raw->temp * JY901S_RAW_TEMP_TO_DEGC;
+    out->validMask =
+        IMU_VALID_ACCEL | IMU_VALID_GYRO | IMU_VALID_MAG | IMU_VALID_ANGLE |
+        IMU_VALID_TEMP;
+    out->sourceMask = IMU_DEVICE_MASK_JY901S;
 }
 
 bool JY901S_ReadAll(JY901S_Data_t *out)

@@ -464,6 +464,8 @@ void HWT101_ConvertRaw(const HWT101_RawData_t *raw, IMU_Data_t *out)
     out->gy = (float)raw->gy * HWT101_RAW_GYRO_TO_DPS;
     out->gz = (float)raw->gz * HWT101_RAW_GYRO_TO_DPS;
     out->yaw = (float)raw->yaw * HWT101_RAW_ANGLE_TO_DEG;
+    out->validMask = IMU_VALID_GY | IMU_VALID_GZ | IMU_VALID_YAW;
+    out->sourceMask = IMU_DEVICE_MASK_HWT101;
 }
 
 bool HWT101_ReadAll(IMU_Data_t *out)

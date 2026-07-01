@@ -26,8 +26,10 @@
 #define HWT101_I2C_INST I2C0
 #endif
 
-/* Default WIT 7-bit I2C address. */
+/* Default WIT 7-bit I2C address. Override this if the module address changed. */
+#ifndef HWT101_ADDR
 #define HWT101_ADDR (0x50u)
+#endif
 
 /* HWT101 / WIT register map used by this driver. */
 #define HWT101_REG_SAVE       (0x00u)

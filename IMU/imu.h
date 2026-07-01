@@ -18,7 +18,9 @@ enum IMUDevice {
 };
 
 int IMU_Init(void);
-bool IMU_ReadAll(IMU_Data_t* IMU_Data);
+uint8_t IMU_GetReadyMask(void);
+bool IMU_IsDeviceReady(enum IMUDevice device);
+bool IMU_ReadAll(IMU_Data_t *IMU_Data);
 void IMU_ZeroYaw(void);
 
 
