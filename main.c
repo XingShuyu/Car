@@ -249,9 +249,6 @@ int main(void) {
 			rightSpeed =
 				(int)(NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
 					  motor.sample_period_s);
-
-			int32_t t = getTimeUs(nowUs, lastMotorSpeedTime);
-			lastMotorSpeedTime = nowUs;
 			IMU_ReadAll(&IMUData);
 			float leftRoll = IMUData.roll-leftBalanceAngle;
 			float rightRoll = IMUData.roll-rightBalanceAngle;
@@ -262,41 +259,21 @@ int main(void) {
 				rightDistance = 0;
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 			} else {
-				int letfOutTicks = 0.92 * leftRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
-				int rightOutTicks = 0.92 * rightRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
+				int letfOutTicks = 1.0 * leftRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
+				int rightOutTicks = 1.0 * rightRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
 				NewMotor_SetWheelPwmTicks(letfOutTicks, rightOutTicks);
 			}
 		}
 // 20ms 位置/速度外环
 if (getTimeUs(nowUs, lastPositionSpeedTime) > 20000U) {
-    float dt = (float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
-    lastPositionSpeedTime = nowUs;
-
-    float targetSpeed = -50.0f; // 前进；设 0 就原地稳住
-    float avgSpeed = 0.5f * (leftSpeed + rightSpeed);
-
-    static float speedIntegral = 0.0f;
-    float speedError = targetSpeed - avgSpeed;
-    speedIntegral += speedError * dt;
-
-    if (speedIntegral > 300.0f) speedIntegral = 300.0f;
-    if (speedIntegral < -300.0f) speedIntegral = -300.0f;
-
-    float angleCmd = 0.01f * speedError + 0.02f * speedIntegral;
-
-    if (angleCmd > 5.0f) angleCmd = 5.0f;
-    if (angleCmd < -5.0f) angleCmd = -5.0f;
-
-    leftBalanceAngle = angleCmd;
-    rightBalanceAngle = angleCmd;
+    leftBalanceAngle = -0.01 * leftDistance - 0.001 *leftSpeed;
+    rightBalanceAngle = -0.01 * leftDistance - 0.001 *leftSpeed;
 }
 
 
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
-			leftTargetAngle = 1.0;
-			rightTargetAngle = 1.0;
 			//leftDistance = 0;
 
 			switch (stage) {
