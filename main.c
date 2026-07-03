@@ -31,7 +31,7 @@
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
-#define BALANCE_STAND_ONLY_ENABLE 1
+#define BALANCE_DIRECT_CONTROL_ENABLE 1
 #define SPEED_OUTER_PERIOD_US 20000U
 #define SPEED_OUTER_KP 0.003f
 #define BALANCE_SPEED_ANGLE_LIMIT_DEG 5.0f
@@ -39,6 +39,16 @@
 #define BALANCE_CENTER_LIMIT_DEG 6.0f
 #define BALANCE_LEARN_GYRO_LIMIT_DPS 10.0f
 #define BALANCE_LEARN_ROLL_LIMIT_DEG 20.0f
+#define BALANCE_LEARN_SPEED_LIMIT_MMPS 80.0f
+#define BALANCE_RUN_TARGET_SPEED_MMPS 100.0f
+
+
+#define BALANCE_RUN_TARGET_TURN_TICKS 80.0f
+#define BALANCE_SPEED_CMD_SLEW_MMPS2 220.0f
+#define BALANCE_TURN_CMD_SLEW_TICKS_PER_S 180.0f
+#define BALANCE_TURN_PWM_LIMIT_TICKS 180.0f
+#define BALANCE_SPEED_FILTER_ALPHA 0.25f
+#define BALANCE_TURN_DISABLE_ROLL_ERROR_DEG 8.0f
 #define BALANCE_LOG_INTERVAL_MS 100U
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
@@ -112,12 +122,18 @@ int leftDistance, rightDistance;
 float balanceCenterAngle = 0.0f;
 float balanceSpeedAngle = 0.0f;
 float balanceTargetAngle = 0.0f;
+float balanceTargetSpeedMmps = BALANCE_RUN_TARGET_SPEED_MMPS;
+float balanceTargetTurnTicks = BALANCE_RUN_TARGET_TURN_TICKS;
+float balanceSpeedCmdMmps = 0.0f;
+float balanceTurnCmdTicks = 0.0f;
+float balanceAvgSpeedFiltered = 0.0f;
 
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
 static float clampf_local(float value, float min_value, float max_value);
+static float slew_to_target(float current, float target, float rate, float dt);
 static void Balance_ResetTarget(bool reset_center);
 static void Balance_UpdateTarget(float dt, float avg_speed_mmps);
 #if MOTOR_STEP_TEST_ENABLE
@@ -268,6 +284,10 @@ int main(void) {
 					  motor.sample_period_s);
 			IMU_ReadAll(&IMUData);
 			float avgSpeed = 0.5f * ((float)leftSpeed + (float)rightSpeed);
+			balanceAvgSpeedFiltered += BALANCE_SPEED_FILTER_ALPHA *
+									   (avgSpeed - balanceAvgSpeedFiltered);
+			float speedError =
+				balanceAvgSpeedFiltered - balanceSpeedCmdMmps;
 			float rollError = IMUData.roll - balanceTargetAngle;
 			float gx = IMUData.gx;
 
@@ -279,30 +299,37 @@ int main(void) {
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 			} else {
 				int outTicks = 1.0 * rollError / 20.0 * 2000 - 6.5 * gx +
-							   3.0 * avgSpeed;
+							   3.0 * speedError;
+				float turnTicks = balanceTurnCmdTicks;
+				if (fabsf(rollError) > BALANCE_TURN_DISABLE_ROLL_ERROR_DEG) {
+					turnTicks = 0.0f;
+				}
 				if (getTimeMs(nowTime, lastUartTime) > BALANCE_LOG_INTERVAL_MS) {
 					lastUartTime = nowTime;
-					printf("Roll:%d Target:%d Center:%d L:%d R:%d PWM:%d\r\n",
+					printf("Roll:%d Target:%d Center:%d Spd:%d Cmd:%d Turn:%d L:%d R:%d PWM:%d\r\n",
 						   (int)IMUData.roll, (int)balanceTargetAngle,
-						   (int)balanceCenterAngle, leftSpeed, rightSpeed,
-						   outTicks);
+						   (int)balanceCenterAngle,
+						   (int)balanceAvgSpeedFiltered,
+						   (int)balanceSpeedCmdMmps,
+						   (int)turnTicks, leftSpeed, rightSpeed, outTicks);
 				}
-				NewMotor_SetWheelPwmTicks(outTicks, outTicks);
+				NewMotor_SetWheelPwmTicks(
+					(int16_t)((float)outTicks - turnTicks),
+					(int16_t)((float)outTicks + turnTicks));
 			}
 		}
-		// 20ms 零速外环：平均轮速 -> 单一目标平衡角
+		// 20ms 速度外环：平滑目标速度 -> 单一目标平衡角
 		if (getTimeUs(nowUs, lastPositionSpeedTime) > SPEED_OUTER_PERIOD_US) {
 			float dt =
 				(float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
-			float avgSpeed = 0.5f * ((float)leftSpeed + (float)rightSpeed);
 
 			lastPositionSpeedTime = nowUs;
 			NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
-			Balance_UpdateTarget(dt, avgSpeed);
+			Balance_UpdateTarget(dt, balanceAvgSpeedFiltered);
 		}
 
 
-		if (!BALANCE_STAND_ONLY_ENABLE &&
+		if (!BALANCE_DIRECT_CONTROL_ENABLE &&
 			getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
@@ -804,6 +831,22 @@ static float clampf_local(float value, float min_value, float max_value) {
 	return value;
 }
 
+static float slew_to_target(float current, float target, float rate, float dt) {
+	float maxStep = rate * dt;
+	float delta = target - current;
+
+	if (maxStep <= 0.0f) {
+		return target;
+	}
+	if (delta > maxStep) {
+		return current + maxStep;
+	}
+	if (delta < -maxStep) {
+		return current - maxStep;
+	}
+	return target;
+}
+
 static void Balance_ResetTarget(bool reset_center) {
 	if (reset_center) {
 		balanceCenterAngle = 0.0f;
@@ -811,27 +854,47 @@ static void Balance_ResetTarget(bool reset_center) {
 
 	balanceSpeedAngle = 0.0f;
 	balanceTargetAngle = balanceCenterAngle;
+	balanceSpeedCmdMmps = 0.0f;
+	balanceTurnCmdTicks = 0.0f;
+	balanceAvgSpeedFiltered = 0.0f;
 }
 
 static void Balance_UpdateTarget(float dt, float avg_speed_mmps) {
 	float outerPeriodS = (float)SPEED_OUTER_PERIOD_US / 1000000.0f;
 	float learnAlpha;
+	float speedError;
 	bool stableBody =
 		fabsf(IMUData.gx) < BALANCE_LEARN_GYRO_LIMIT_DPS &&
 		fabsf(IMUData.roll - balanceCenterAngle) <
 			BALANCE_LEARN_ROLL_LIMIT_DEG;
+	bool nearStop = fabsf(avg_speed_mmps) < BALANCE_LEARN_SPEED_LIMIT_MMPS;
 
 	if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
 		dt = outerPeriodS;
 	}
 	learnAlpha = BALANCE_CENTER_LEARN_ALPHA * dt / outerPeriodS;
 	learnAlpha = clampf_local(learnAlpha, 0.0f, 1.0f);
+
+	balanceSpeedCmdMmps = slew_to_target(
+		balanceSpeedCmdMmps,
+		balanceTargetSpeedMmps,
+		BALANCE_SPEED_CMD_SLEW_MMPS2,
+		dt);
+	balanceTurnCmdTicks = slew_to_target(
+		balanceTurnCmdTicks,
+		clampf_local(balanceTargetTurnTicks,
+					 -BALANCE_TURN_PWM_LIMIT_TICKS,
+					 BALANCE_TURN_PWM_LIMIT_TICKS),
+		BALANCE_TURN_CMD_SLEW_TICKS_PER_S,
+		dt);
+
+	speedError = avg_speed_mmps - balanceSpeedCmdMmps;
 	balanceSpeedAngle = clampf_local(
-		-SPEED_OUTER_KP * avg_speed_mmps,
+		-SPEED_OUTER_KP * speedError,
 		-BALANCE_SPEED_ANGLE_LIMIT_DEG,
 		BALANCE_SPEED_ANGLE_LIMIT_DEG);
 
-	if (stableBody) {
+	if (stableBody && nearStop && fabsf(balanceSpeedCmdMmps) < 20.0f) {
 		float learnedAngle = learnAlpha * balanceSpeedAngle;
 		balanceCenterAngle = clampf_local(
 			balanceCenterAngle + learnedAngle,
