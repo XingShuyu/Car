@@ -31,6 +31,15 @@
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
+#define BALANCE_STAND_ONLY_ENABLE 1
+#define SPEED_OUTER_PERIOD_US 20000U
+#define SPEED_OUTER_KP 0.003f
+#define BALANCE_SPEED_ANGLE_LIMIT_DEG 5.0f
+#define BALANCE_CENTER_LEARN_ALPHA 0.02f
+#define BALANCE_CENTER_LIMIT_DEG 6.0f
+#define BALANCE_LEARN_GYRO_LIMIT_DPS 10.0f
+#define BALANCE_LEARN_ROLL_LIMIT_DEG 20.0f
+#define BALANCE_LOG_INTERVAL_MS 100U
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
@@ -99,16 +108,18 @@ volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftSpeed,rightSpeed;
 int leftDistance, rightDistance;
-//平衡位置
-float leftBalanceAngle = 0;
-float rightBalanceAngle = 0;
-float leftTargetAngle = 0;
-float rightTargetAngle = 0;
+// 直立核心目标角：Target = 自动学习到的重心角 + 零速修正角。
+float balanceCenterAngle = 0.0f;
+float balanceSpeedAngle = 0.0f;
+float balanceTargetAngle = 0.0f;
 
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
+static float clampf_local(float value, float min_value, float max_value);
+static void Balance_ResetTarget(bool reset_center);
+static void Balance_UpdateTarget(float dt, float avg_speed_mmps);
 #if MOTOR_STEP_TEST_ENABLE
 static void MotorClosedLoopStepTest(void);
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
@@ -150,7 +161,7 @@ int main(void) {
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
 	NewMotorSpeedCtrl_SetPid(&motor, 13.0, 800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
 
 	printf("OK");
 
@@ -217,6 +228,8 @@ int main(void) {
 	buzzer_beep();
 	lastIMUTime = getNowMs();
 	lastStageTime = getNowMs()+5000;
+	lastMotorSpeedTime = getNowUs();
+	lastPositionSpeedTime = lastMotorSpeedTime;
 
 	while (1) {
 		// 更新当前时间
@@ -229,8 +242,9 @@ int main(void) {
 			// 获取速度
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
-			motor.sample_period_s =
+			float balanceDt =
 				(float)getTimeUs(nowUs, lastMotorSpeedTime) / 1000000.0f;
+			motor.sample_period_s = balanceDt;
 			lastMotorSpeedTime = nowUs;
 
 			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
@@ -240,6 +254,9 @@ int main(void) {
 			motorLeftCount = 0;
 			motorRightCount = 0;
 			__enable_irq();
+			//-------左右轮同步转，不要删--------
+			// leftCountSnapshot = rightCountSnapshot;
+			//---------------------------------
 			leftDistance += leftCountSnapshot;
 			rightDistance += rightCountSnapshot;
 
@@ -250,30 +267,46 @@ int main(void) {
 				(int)(NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
 					  motor.sample_period_s);
 			IMU_ReadAll(&IMUData);
-			float leftRoll = IMUData.roll-leftBalanceAngle;
-			float rightRoll = IMUData.roll-rightBalanceAngle;
+			float avgSpeed = 0.5f * ((float)leftSpeed + (float)rightSpeed);
+			float rollError = IMUData.roll - balanceTargetAngle;
 			float gx = IMUData.gx;
 
 			if (IMUData.roll > 30 || IMUData.roll < -30) {
 				leftDistance = 0;
 				rightDistance = 0;
+				Balance_ResetTarget(true);
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
 				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 			} else {
-				int letfOutTicks = 1.0 * leftRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
-				int rightOutTicks = 1.0 * rightRoll / 20.0 * 2000 - 5.0 * gx + 3.0 * leftSpeed;
-				NewMotor_SetWheelPwmTicks(letfOutTicks, rightOutTicks);
+				int outTicks = 1.0 * rollError / 20.0 * 2000 - 6.5 * gx +
+							   3.0 * avgSpeed;
+				if (getTimeMs(nowTime, lastUartTime) > BALANCE_LOG_INTERVAL_MS) {
+					lastUartTime = nowTime;
+					printf("Roll:%d Target:%d Center:%d L:%d R:%d PWM:%d\r\n",
+						   (int)IMUData.roll, (int)balanceTargetAngle,
+						   (int)balanceCenterAngle, leftSpeed, rightSpeed,
+						   outTicks);
+				}
+				NewMotor_SetWheelPwmTicks(outTicks, outTicks);
 			}
 		}
-// 20ms 位置/速度外环
-if (getTimeUs(nowUs, lastPositionSpeedTime) > 20000U) {
-    leftBalanceAngle = -0.01 * leftDistance - 0.001 *leftSpeed;
-    rightBalanceAngle = -0.01 * leftDistance - 0.001 *leftSpeed;
-}
+		// 20ms 零速外环：平均轮速 -> 单一目标平衡角
+		if (getTimeUs(nowUs, lastPositionSpeedTime) > SPEED_OUTER_PERIOD_US) {
+			float dt =
+				(float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
+			float avgSpeed = 0.5f * ((float)leftSpeed + (float)rightSpeed);
+
+			lastPositionSpeedTime = nowUs;
+			NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
+			Balance_UpdateTarget(dt, avgSpeed);
+		}
 
 
-		if (getTimeMs(nowTime, lastStageTime) > 5) {
+		if (!BALANCE_STAND_ONLY_ENABLE &&
+			getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
+			NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 			//leftDistance = 0;
 
 			switch (stage) {
@@ -759,6 +792,54 @@ void process_imu_for_horizontal_motion(float dt) {
 	} else {
 		yaw_angle += data.gz * dt;
 	}
+}
+
+static float clampf_local(float value, float min_value, float max_value) {
+	if (value < min_value) {
+		return min_value;
+	}
+	if (value > max_value) {
+		return max_value;
+	}
+	return value;
+}
+
+static void Balance_ResetTarget(bool reset_center) {
+	if (reset_center) {
+		balanceCenterAngle = 0.0f;
+	}
+
+	balanceSpeedAngle = 0.0f;
+	balanceTargetAngle = balanceCenterAngle;
+}
+
+static void Balance_UpdateTarget(float dt, float avg_speed_mmps) {
+	float outerPeriodS = (float)SPEED_OUTER_PERIOD_US / 1000000.0f;
+	float learnAlpha;
+	bool stableBody =
+		fabsf(IMUData.gx) < BALANCE_LEARN_GYRO_LIMIT_DPS &&
+		fabsf(IMUData.roll - balanceCenterAngle) <
+			BALANCE_LEARN_ROLL_LIMIT_DEG;
+
+	if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
+		dt = outerPeriodS;
+	}
+	learnAlpha = BALANCE_CENTER_LEARN_ALPHA * dt / outerPeriodS;
+	learnAlpha = clampf_local(learnAlpha, 0.0f, 1.0f);
+	balanceSpeedAngle = clampf_local(
+		-SPEED_OUTER_KP * avg_speed_mmps,
+		-BALANCE_SPEED_ANGLE_LIMIT_DEG,
+		BALANCE_SPEED_ANGLE_LIMIT_DEG);
+
+	if (stableBody) {
+		float learnedAngle = learnAlpha * balanceSpeedAngle;
+		balanceCenterAngle = clampf_local(
+			balanceCenterAngle + learnedAngle,
+			-BALANCE_CENTER_LIMIT_DEG,
+			BALANCE_CENTER_LIMIT_DEG);
+	}
+
+	balanceTargetAngle = balanceCenterAngle + balanceSpeedAngle;
 }
 
 // 蜂鸣器鸣响三声
