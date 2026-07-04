@@ -31,19 +31,17 @@
 #define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
-#define BALANCE_DIRECT_CONTROL_ENABLE 1
+//--------倒立摆平衡宏定义-------
 #define SPEED_OUTER_PERIOD_US 20000U
 #define SPEED_OUTER_KP 0.003f
+
+
 #define BALANCE_SPEED_ANGLE_LIMIT_DEG 5.0f
 #define BALANCE_CENTER_LEARN_ALPHA 0.02f
 #define BALANCE_CENTER_LIMIT_DEG 6.0f
 #define BALANCE_LEARN_GYRO_LIMIT_DPS 10.0f
 #define BALANCE_LEARN_ROLL_LIMIT_DEG 20.0f
 #define BALANCE_LEARN_SPEED_LIMIT_MMPS 80.0f
-#define BALANCE_RUN_TARGET_SPEED_MMPS 100.0f
-
-
-#define BALANCE_RUN_TARGET_TURN_TICKS 80.0f
 #define BALANCE_SPEED_CMD_SLEW_MMPS2 220.0f
 #define BALANCE_TURN_CMD_SLEW_TICKS_PER_S 180.0f
 #define BALANCE_TURN_PWM_LIMIT_TICKS 180.0f
@@ -56,8 +54,8 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
 // 基础速度
-int BaseSpeed = 450;
-int RoundSpeed = 200;
+int BaseSpeed = 100;
+int RoundSpeed = 60;
 float distance;
 // l1 l2距离
 float distence[2];
@@ -122,8 +120,6 @@ int leftDistance, rightDistance;
 float balanceCenterAngle = 0.0f;
 float balanceSpeedAngle = 0.0f;
 float balanceTargetAngle = 0.0f;
-float balanceTargetSpeedMmps = BALANCE_RUN_TARGET_SPEED_MMPS;
-float balanceTargetTurnTicks = BALANCE_RUN_TARGET_TURN_TICKS;
 float balanceSpeedCmdMmps = 0.0f;
 float balanceTurnCmdTicks = 0.0f;
 float balanceAvgSpeedFiltered = 0.0f;
@@ -304,15 +300,6 @@ int main(void) {
 				if (fabsf(rollError) > BALANCE_TURN_DISABLE_ROLL_ERROR_DEG) {
 					turnTicks = 0.0f;
 				}
-				if (getTimeMs(nowTime, lastUartTime) > BALANCE_LOG_INTERVAL_MS) {
-					lastUartTime = nowTime;
-					printf("Roll:%d Target:%d Center:%d Spd:%d Cmd:%d Turn:%d L:%d R:%d PWM:%d\r\n",
-						   (int)IMUData.roll, (int)balanceTargetAngle,
-						   (int)balanceCenterAngle,
-						   (int)balanceAvgSpeedFiltered,
-						   (int)balanceSpeedCmdMmps,
-						   (int)turnTicks, leftSpeed, rightSpeed, outTicks);
-				}
 				NewMotor_SetWheelPwmTicks(
 					(int16_t)((float)outTicks - turnTicks),
 					(int16_t)((float)outTicks + turnTicks));
@@ -324,16 +311,14 @@ int main(void) {
 				(float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
 
 			lastPositionSpeedTime = nowUs;
-			NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
 			Balance_UpdateTarget(dt, balanceAvgSpeedFiltered);
 		}
 
 
-		if (!BALANCE_DIRECT_CONTROL_ENABLE &&
-			getTimeMs(nowTime, lastStageTime) > 5) {
+		if (getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
-			NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+			// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor,BaseSpeed,BaseSpeed);
 			//leftDistance = 0;
 
 			switch (stage) {
@@ -590,28 +575,31 @@ int main(void) {
 				// 	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 				// 	StageFlag++;
 				// }
-				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
-				Grayscale_Line(&grayscalePid, grayscale);
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
-													 0.5 * -BaseSpeed);
-				if (grayscale[0] == 0 && grayscale[1] == 0 &&
-					grayscale[2] == 0 && grayscale[3] == 0 &&
-					grayscale[4] == 0 && grayscale[5] == 0 &&
-					grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
-					StageFlag++;
-				}
-				if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
-					  grayscale[2] == 0 && grayscale[3] == 0 &&
-					  grayscale[4] == 0 && grayscale[5] == 0 &&
-					  grayscale[6] == 0 && grayscale[7] == 0) &&
-					StageFlag == 1) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-					NewMotor_Stop(NEWMOTOR_STOP_COAST);
-					buzzer_beep();
-					StageFlag = 0;
-					shouldStopRun = true;
-				}
-				break;
+
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+
+				// grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+				// Grayscale_Line(&grayscalePid, grayscale);
+				// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
+				// 									 0.5 * -BaseSpeed);
+				// if (grayscale[0] == 0 && grayscale[1] == 0 &&
+				// 	grayscale[2] == 0 && grayscale[3] == 0 &&
+				// 	grayscale[4] == 0 && grayscale[5] == 0 &&
+				// 	grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
+				// 	StageFlag++;
+				// }
+				// if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
+				// 	  grayscale[2] == 0 && grayscale[3] == 0 &&
+				// 	  grayscale[4] == 0 && grayscale[5] == 0 &&
+				// 	  grayscale[6] == 0 && grayscale[7] == 0) &&
+				// 	StageFlag == 1) {
+				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				// 	NewMotor_Stop(NEWMOTOR_STOP_COAST);
+				// 	buzzer_beep();
+				// 	StageFlag = 0;
+				// 	shouldStopRun = true;
+				// }
+				// break;
 			}
 			case StageTurn145: {
 				if (StageFlag == 0) {
@@ -877,12 +865,12 @@ static void Balance_UpdateTarget(float dt, float avg_speed_mmps) {
 
 	balanceSpeedCmdMmps = slew_to_target(
 		balanceSpeedCmdMmps,
-		balanceTargetSpeedMmps,
+		motor.target_forward_mmps,
 		BALANCE_SPEED_CMD_SLEW_MMPS2,
 		dt);
 	balanceTurnCmdTicks = slew_to_target(
 		balanceTurnCmdTicks,
-		clampf_local(balanceTargetTurnTicks,
+		clampf_local(motor.target_turn_ticks,
 					 -BALANCE_TURN_PWM_LIMIT_TICKS,
 					 BALANCE_TURN_PWM_LIMIT_TICKS),
 		BALANCE_TURN_CMD_SLEW_TICKS_PER_S,

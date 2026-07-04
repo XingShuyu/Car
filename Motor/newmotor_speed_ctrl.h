@@ -5,6 +5,22 @@
 
 #include "newmotor_driver.h"
 
+#ifndef NEWMOTOR_BALANCE_WHEEL_DIFF_TO_TURN_TICKS
+#define NEWMOTOR_BALANCE_WHEEL_DIFF_TO_TURN_TICKS (0.20f)
+#endif
+
+#ifndef NEWMOTOR_BALANCE_FORWARD_SIGN
+#define NEWMOTOR_BALANCE_FORWARD_SIGN (1.0f)
+#endif
+
+#ifndef NEWMOTOR_BALANCE_STRAIGHT_TURN_BIAS_TICKS
+#define NEWMOTOR_BALANCE_STRAIGHT_TURN_BIAS_TICKS (30.0f)
+#endif
+
+#ifndef NEWMOTOR_BALANCE_TURN_PWM_LIMIT_TICKS
+#define NEWMOTOR_BALANCE_TURN_PWM_LIMIT_TICKS (180.0f)
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -38,6 +54,8 @@ typedef struct NewMotor_SpeedCtrl {
 
     float target_left_mmps;
     float target_right_mmps;
+    float target_forward_mmps;
+    float target_turn_ticks;
 
     float measured_left_mmps;
     float measured_right_mmps;

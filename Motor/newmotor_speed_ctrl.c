@@ -47,6 +47,8 @@ void NewMotorSpeedCtrl_Init(NewMotor_SpeedCtrl *ctrl, float sample_period_s)
 
     ctrl->target_left_mmps = 0.0f;
     ctrl->target_right_mmps = 0.0f;
+    ctrl->target_forward_mmps = 0.0f;
+    ctrl->target_turn_ticks = 0.0f;
     ctrl->measured_left_mmps = 0.0f;
     ctrl->measured_right_mmps = 0.0f;
     ctrl->pwm_left_ticks = 0;
@@ -100,12 +102,29 @@ void NewMotorSpeedCtrl_SetOutputLimit(NewMotor_SpeedCtrl *ctrl, float out_min_ti
 
 void NewMotorSpeedCtrl_SetTargetWheelMmps(NewMotor_SpeedCtrl *ctrl, float left_mmps, float right_mmps)
 {
+    float forward_mmps;
+    float turn_ticks;
+
     if (ctrl == NULL) {
         return;
     }
 
     ctrl->target_left_mmps = left_mmps;
     ctrl->target_right_mmps = right_mmps;
+    forward_mmps = 0.5f * (left_mmps + right_mmps);
+    turn_ticks =
+        (right_mmps - left_mmps) * NEWMOTOR_BALANCE_WHEEL_DIFF_TO_TURN_TICKS;
+
+    if (fabsf(forward_mmps) > NM_STOP_TARGET_EPSILON_MMPS) {
+        turn_ticks += NEWMOTOR_BALANCE_STRAIGHT_TURN_BIAS_TICKS;
+    }
+
+    ctrl->target_forward_mmps =
+        NEWMOTOR_BALANCE_FORWARD_SIGN * forward_mmps;
+    ctrl->target_turn_ticks = nm_clampf(
+        turn_ticks,
+        -NEWMOTOR_BALANCE_TURN_PWM_LIMIT_TICKS,
+        NEWMOTOR_BALANCE_TURN_PWM_LIMIT_TICKS);
 
     ctrl->pid_left.target_mmps = left_mmps;
     ctrl->pid_right.target_mmps = right_mmps;
