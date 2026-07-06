@@ -3,9 +3,9 @@
 static float error;
 float sensor_weight[8] = {-3.0, -2.7, -2.5, -2.0, 2.0, 2.5, 2.7, 3.0};
 
-#define IRTrack_Trun_KP (100) // 140
-#define IRTrack_Trun_KI (0.15)
-#define IRTrack_Trun_KD (7)
+#define IRTrack_Trun_KP (50) // 140
+#define IRTrack_Trun_KI (0)
+#define IRTrack_Trun_KD (0)
 
 int pid_output_IRR = 0;
 

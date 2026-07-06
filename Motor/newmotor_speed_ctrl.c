@@ -103,7 +103,9 @@ void NewMotorSpeedCtrl_SetOutputLimit(NewMotor_SpeedCtrl *ctrl, float out_min_ti
 void NewMotorSpeedCtrl_SetTargetWheelMmps(NewMotor_SpeedCtrl *ctrl, float left_mmps, float right_mmps)
 {
     float forward_mmps;
+    float wheel_diff_mmps;
     float turn_ticks;
+    bool is_spin_turn;
 
     if (ctrl == NULL) {
         return;
@@ -112,8 +114,22 @@ void NewMotorSpeedCtrl_SetTargetWheelMmps(NewMotor_SpeedCtrl *ctrl, float left_m
     ctrl->target_left_mmps = left_mmps;
     ctrl->target_right_mmps = right_mmps;
     forward_mmps = 0.5f * (left_mmps + right_mmps);
+    wheel_diff_mmps = right_mmps - left_mmps;
+    is_spin_turn =
+        (fabsf(forward_mmps) <= NEWMOTOR_BALANCE_SPIN_FORWARD_EPS_MMPS) &&
+        ((left_mmps * right_mmps) < 0.0f);
+
     turn_ticks =
-        (right_mmps - left_mmps) * NEWMOTOR_BALANCE_WHEEL_DIFF_TO_TURN_TICKS;
+        wheel_diff_mmps *
+        (is_spin_turn ? NEWMOTOR_BALANCE_SPIN_WHEEL_DIFF_TO_TURN_TICKS :
+                        NEWMOTOR_BALANCE_WHEEL_DIFF_TO_TURN_TICKS);
+
+    if (is_spin_turn &&
+        fabsf(turn_ticks) < NEWMOTOR_BALANCE_SPIN_MIN_TURN_TICKS) {
+        turn_ticks = (turn_ticks >= 0.0f) ?
+            NEWMOTOR_BALANCE_SPIN_MIN_TURN_TICKS :
+            -NEWMOTOR_BALANCE_SPIN_MIN_TURN_TICKS;
+    }
 
     if (fabsf(forward_mmps) > NM_STOP_TARGET_EPSILON_MMPS) {
         turn_ticks += NEWMOTOR_BALANCE_STRAIGHT_TURN_BIAS_TICKS;

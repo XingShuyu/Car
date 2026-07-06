@@ -43,8 +43,8 @@
 #define BALANCE_LEARN_ROLL_LIMIT_DEG 20.0f
 #define BALANCE_LEARN_SPEED_LIMIT_MMPS 80.0f
 #define BALANCE_SPEED_CMD_SLEW_MMPS2 220.0f
-#define BALANCE_TURN_CMD_SLEW_TICKS_PER_S 180.0f
-#define BALANCE_TURN_PWM_LIMIT_TICKS 180.0f
+#define BALANCE_TURN_CMD_SLEW_TICKS_PER_S 420.0f
+#define BALANCE_TURN_PWM_LIMIT_TICKS 260.0f
 #define BALANCE_SPEED_FILTER_ALPHA 0.25f
 #define BALANCE_TURN_DISABLE_ROLL_ERROR_DEG 8.0f
 #define BALANCE_LOG_INTERVAL_MS 100U
@@ -54,8 +54,8 @@ static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
 // 基础速度
-int BaseSpeed = 100;
-int RoundSpeed = 60;
+int BaseSpeed = 100;0
+int RoundSpeed = 100;
 float distance;
 // l1 l2距离
 float distence[2];
@@ -243,6 +243,7 @@ int main(void) {
 	lastMotorSpeedTime = getNowUs();
 	lastPositionSpeedTime = lastMotorSpeedTime;
 
+
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
@@ -382,7 +383,6 @@ int main(void) {
 				}
 				if (_read_channel_stable(4)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
@@ -542,7 +542,6 @@ int main(void) {
 			case StageBizz: {
 				// StageBizz
 				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 				buzzer_beep();
 				StageIndex++;
 				break;
