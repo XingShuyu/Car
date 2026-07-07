@@ -1,6 +1,7 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Balance/balance_control.h"
 #include "Emm/Emm.h"
 #include "GrayScale/Grayscale_Scan.h"
 #include "IMU/imu.h"
@@ -9,7 +10,6 @@
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
 #include "wdd35d4/wd35d4.h"
-#include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -19,43 +19,16 @@
 #define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
 #define G_TO_MS2 9.8f		   // 加速度取9.8
 #define DT_SAMPLE 0.01f		   // 采样周期10ms
-#define STANDUP_SAFE_ANGLE_DEG 15.0f
-#define STANDUP_DT_MAX_S 0.05f
-#define STANDUP_PWM_LIMIT_TICKS 1800
-#define STANDUP_KP_TICKS_PER_DEG 19.6f
-#define STANDUP_KD_TICKS_PER_DEGPS 2.0f
-#define STANDUP_KG_TICKS_PER_DEGPS 7.0f
-#define STANDUP_KGD_TICKS_PER_DEGPS 1.5f
-#define STANDUP_D_FILTER_ALPHA 0.0f
-#define STANDUP_LOG_INTERVAL_MS 50U
-#define STANDUP_DISPLAY_INTERVAL_MS 100U
 #define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
-//--------倒立摆平衡宏定义-------
-#define SPEED_OUTER_PERIOD_US 20000U
-#define SPEED_OUTER_KP 0.003f
-
-
-#define BALANCE_SPEED_ANGLE_LIMIT_DEG 5.0f
-#define BALANCE_CENTER_LEARN_ALPHA 0.02f
-#define BALANCE_CENTER_LIMIT_DEG 6.0f
-#define BALANCE_LEARN_GYRO_LIMIT_DPS 10.0f
-#define BALANCE_LEARN_ROLL_LIMIT_DEG 20.0f
-#define BALANCE_LEARN_SPEED_LIMIT_MMPS 80.0f
-#define BALANCE_SPEED_CMD_SLEW_MMPS2 220.0f
-#define BALANCE_TURN_CMD_SLEW_TICKS_PER_S 420.0f
-#define BALANCE_TURN_PWM_LIMIT_TICKS 260.0f
-#define BALANCE_SPEED_FILTER_ALPHA 0.25f
-#define BALANCE_TURN_DISABLE_ROLL_ERROR_DEG 8.0f
-#define BALANCE_LOG_INTERVAL_MS 100U
 static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
 // 基础速度
-int BaseSpeed = 100;0
-int RoundSpeed = 100;
+int BaseSpeed = 50;
+int RoundSpeed = 50;
 float distance;
 // l1 l2距离
 float distence[2];
@@ -114,28 +87,25 @@ bool grayscale[8];
 NewMotor_SpeedCtrl motor;
 volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
-int leftSpeed,rightSpeed;
 int leftDistance, rightDistance;
-// 直立核心目标角：Target = 自动学习到的重心角 + 零速修正角。
-float balanceCenterAngle = 0.0f;
-float balanceSpeedAngle = 0.0f;
-float balanceTargetAngle = 0.0f;
-float balanceSpeedCmdMmps = 0.0f;
-float balanceTurnCmdTicks = 0.0f;
-float balanceAvgSpeedFiltered = 0.0f;
 
 
 void process_imu_for_horizontal_motion(float dt);
 void Display_WheelSpeeds();
 void buzzer_beep(void);
-static float clampf_local(float value, float min_value, float max_value);
-static float slew_to_target(float current, float target, float rate, float dt);
-static void Balance_ResetTarget(bool reset_center);
-static void Balance_UpdateTarget(float dt, float avg_speed_mmps);
+static void buzzer_set(bool enabled);
+static void buzzer_notify_start(uint8_t beep_count);
+static void buzzer_notify_update(uint32_t now_ms);
+static bool buzzer_notify_is_active(void);
 #if MOTOR_STEP_TEST_ENABLE
 static void MotorClosedLoopStepTest(void);
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
 #endif
+
+static bool buzzer_notify_active = false;
+static bool buzzer_notify_on = false;
+static uint8_t buzzer_notify_edges_remaining = 0;
+static uint32_t buzzer_notify_next_ms = 0;
 
 int main(void) {
 	//--------------------------------------
@@ -174,6 +144,7 @@ int main(void) {
 	NewMotorSpeedCtrl_SetPid(&motor, 13.0, 800.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
+	BalanceControl_Init();
 
 	printf("OK");
 
@@ -237,27 +208,34 @@ int main(void) {
 		Goal = TextIndex;
 	}
 	startTime = getNowMs();
-	buzzer_beep();
 	lastIMUTime = getNowMs();
 	lastStageTime = getNowMs()+5000;
 	lastMotorSpeedTime = getNowUs();
 	lastPositionSpeedTime = lastMotorSpeedTime;
+	bool balanceReadyNotified = false;
 
 
 	while (1) {
 		// 更新当前时间
 		nowTime = getNowMs();
+		buzzer_notify_update(nowTime);
+		if (BalanceControl_GetMode() != BALANCE_CONTROL_MODE_RUNNING) {
+			balanceReadyNotified = false;
+		} else if (!buzzer_notify_is_active() && !balanceReadyNotified) {
+			balanceReadyNotified = true;
+			lastStageTime = nowTime;
+		}
 		USART_PollTx();
 		uint32_t nowUs = getNowUs();
-		// 平衡环
-		if (getTimeUs(nowUs, lastMotorSpeedTime) > 5000U) {
-			
+		// 5ms平衡内环：主循环只负责取时间、读编码器和IMU，控制计算在Balance模块内完成
+		if (getTimeUs(nowUs, lastMotorSpeedTime) >
+			BALANCE_CONTROL_FAST_PERIOD_US) {
+
 			// 获取速度
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
 			float balanceDt =
 				(float)getTimeUs(nowUs, lastMotorSpeedTime) / 1000000.0f;
-			motor.sample_period_s = balanceDt;
 			lastMotorSpeedTime = nowUs;
 
 			// 原子化读取并清零编码器计数，避免与中断并发导致丢脉冲
@@ -273,50 +251,37 @@ int main(void) {
 			leftDistance += leftCountSnapshot;
 			rightDistance += rightCountSnapshot;
 
-			leftSpeed =
-				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
-					  motor.sample_period_s);
-			rightSpeed =
-				(int)(NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
-					  motor.sample_period_s);
 			IMU_ReadAll(&IMUData);
-			float avgSpeed = 0.5f * ((float)leftSpeed + (float)rightSpeed);
-			balanceAvgSpeedFiltered += BALANCE_SPEED_FILTER_ALPHA *
-									   (avgSpeed - balanceAvgSpeedFiltered);
-			float speedError =
-				balanceAvgSpeedFiltered - balanceSpeedCmdMmps;
-			float rollError = IMUData.roll - balanceTargetAngle;
-			float gx = IMUData.gx;
-
-			if (IMUData.roll > 30 || IMUData.roll < -30) {
+			if (!BalanceControl_UpdateFast(&motor,
+										   &IMUData,
+										   leftCountSnapshot,
+										   rightCountSnapshot,
+										   balanceDt,
+										   NULL)) {
 				leftDistance = 0;
 				rightDistance = 0;
-				Balance_ResetTarget(true);
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.0f, 0.0f);
-				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-			} else {
-				int outTicks = 1.0 * rollError / 20.0 * 2000 - 6.5 * gx +
-							   3.0 * speedError;
-				float turnTicks = balanceTurnCmdTicks;
-				if (fabsf(rollError) > BALANCE_TURN_DISABLE_ROLL_ERROR_DEG) {
-					turnTicks = 0.0f;
-				}
-				NewMotor_SetWheelPwmTicks(
-					(int16_t)((float)outTicks - turnTicks),
-					(int16_t)((float)outTicks + turnTicks));
 			}
 		}
-		// 20ms 速度外环：平滑目标速度 -> 单一目标平衡角
-		if (getTimeUs(nowUs, lastPositionSpeedTime) > SPEED_OUTER_PERIOD_US) {
+		// 20ms平衡状态机/速度外环：启动时标定中心角，运行后只更新临时目标倾角
+		if (getTimeUs(nowUs, lastPositionSpeedTime) >
+			BALANCE_CONTROL_OUTER_PERIOD_US) {
 			float dt =
 				(float)getTimeUs(nowUs, lastPositionSpeedTime) / 1000000.0f;
+			BalanceControl_Mode balanceModeBefore = BalanceControl_GetMode();
 
 			lastPositionSpeedTime = nowUs;
-			Balance_UpdateTarget(dt, balanceAvgSpeedFiltered);
+			BalanceControl_UpdateTarget(&motor, &IMUData, dt);
+			if (balanceModeBefore != BALANCE_CONTROL_MODE_RUNNING &&
+				BalanceControl_GetMode() == BALANCE_CONTROL_MODE_RUNNING) {
+				balanceReadyNotified = false;
+				lastStageTime = nowTime;
+				buzzer_notify_start(3);
+			}
 		}
 
 
-		if (getTimeMs(nowTime, lastStageTime) > 5) {
+		if (BalanceControl_IsRunning() && balanceReadyNotified &&
+			getTimeMs(nowTime, lastStageTime) > 5) {
 			int16_t stage = command[StageIndex];
 			bool shouldStopRun = false;
 			// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor,BaseSpeed,BaseSpeed);
@@ -808,98 +773,62 @@ void process_imu_for_horizontal_motion(float dt) {
 	}
 }
 
-static float clampf_local(float value, float min_value, float max_value) {
-	if (value < min_value) {
-		return min_value;
+static void buzzer_set(bool enabled) {
+	if (enabled) {
+		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16);
+		DL_GPIO_setPins(GPIOB, DL_GPIO_PIN_22);
+	} else {
+		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16);
+		DL_GPIO_clearPins(GPIOB, DL_GPIO_PIN_22);
 	}
-	if (value > max_value) {
-		return max_value;
-	}
-	return value;
 }
 
-static float slew_to_target(float current, float target, float rate, float dt) {
-	float maxStep = rate * dt;
-	float delta = target - current;
+static void buzzer_notify_start(uint8_t beep_count) {
+	if (beep_count == 0U) {
+		return;
+	}
 
-	if (maxStep <= 0.0f) {
-		return target;
-	}
-	if (delta > maxStep) {
-		return current + maxStep;
-	}
-	if (delta < -maxStep) {
-		return current - maxStep;
-	}
-	return target;
+	buzzer_notify_active = true;
+	buzzer_notify_on = false;
+	buzzer_notify_edges_remaining = (uint8_t)(beep_count * 2U);
+	buzzer_notify_next_ms = getNowMs();
+	buzzer_set(false);
 }
 
-static void Balance_ResetTarget(bool reset_center) {
-	if (reset_center) {
-		balanceCenterAngle = 0.0f;
+static void buzzer_notify_update(uint32_t now_ms) {
+	if (!buzzer_notify_active) {
+		return;
+	}
+	if ((int32_t)(now_ms - buzzer_notify_next_ms) < 0) {
+		return;
+	}
+	if (buzzer_notify_edges_remaining == 0U) {
+		buzzer_set(false);
+		buzzer_notify_on = false;
+		buzzer_notify_active = false;
+		return;
 	}
 
-	balanceSpeedAngle = 0.0f;
-	balanceTargetAngle = balanceCenterAngle;
-	balanceSpeedCmdMmps = 0.0f;
-	balanceTurnCmdTicks = 0.0f;
-	balanceAvgSpeedFiltered = 0.0f;
+	buzzer_notify_on = !buzzer_notify_on;
+	buzzer_set(buzzer_notify_on);
+	buzzer_notify_edges_remaining--;
+	buzzer_notify_next_ms = now_ms + 100U;
+
+	if (buzzer_notify_edges_remaining == 0U && !buzzer_notify_on) {
+		buzzer_notify_active = false;
+	}
 }
 
-static void Balance_UpdateTarget(float dt, float avg_speed_mmps) {
-	float outerPeriodS = (float)SPEED_OUTER_PERIOD_US / 1000000.0f;
-	float learnAlpha;
-	float speedError;
-	bool stableBody =
-		fabsf(IMUData.gx) < BALANCE_LEARN_GYRO_LIMIT_DPS &&
-		fabsf(IMUData.roll - balanceCenterAngle) <
-			BALANCE_LEARN_ROLL_LIMIT_DEG;
-	bool nearStop = fabsf(avg_speed_mmps) < BALANCE_LEARN_SPEED_LIMIT_MMPS;
-
-	if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
-		dt = outerPeriodS;
-	}
-	learnAlpha = BALANCE_CENTER_LEARN_ALPHA * dt / outerPeriodS;
-	learnAlpha = clampf_local(learnAlpha, 0.0f, 1.0f);
-
-	balanceSpeedCmdMmps = slew_to_target(
-		balanceSpeedCmdMmps,
-		motor.target_forward_mmps,
-		BALANCE_SPEED_CMD_SLEW_MMPS2,
-		dt);
-	balanceTurnCmdTicks = slew_to_target(
-		balanceTurnCmdTicks,
-		clampf_local(motor.target_turn_ticks,
-					 -BALANCE_TURN_PWM_LIMIT_TICKS,
-					 BALANCE_TURN_PWM_LIMIT_TICKS),
-		BALANCE_TURN_CMD_SLEW_TICKS_PER_S,
-		dt);
-
-	speedError = avg_speed_mmps - balanceSpeedCmdMmps;
-	balanceSpeedAngle = clampf_local(
-		-SPEED_OUTER_KP * speedError,
-		-BALANCE_SPEED_ANGLE_LIMIT_DEG,
-		BALANCE_SPEED_ANGLE_LIMIT_DEG);
-
-	if (stableBody && nearStop && fabsf(balanceSpeedCmdMmps) < 20.0f) {
-		float learnedAngle = learnAlpha * balanceSpeedAngle;
-		balanceCenterAngle = clampf_local(
-			balanceCenterAngle + learnedAngle,
-			-BALANCE_CENTER_LIMIT_DEG,
-			BALANCE_CENTER_LIMIT_DEG);
-	}
-
-	balanceTargetAngle = balanceCenterAngle + balanceSpeedAngle;
+static bool buzzer_notify_is_active(void) {
+	return buzzer_notify_active;
 }
 
-// 蜂鸣器鸣响三声
+// 蜂鸣器阻塞鸣响三声，仅用于停车后的提示；平衡运行中使用 buzzer_notify_*。
 void buzzer_beep(void) {
 	for (int i = 0; i < 3; i++) {
-		DL_GPIO_setPins(GPIOA, DL_GPIO_PIN_16); // 打开蜂鸣器
-		DL_GPIO_setPins(GPIOB, DL_GPIO_PIN_22);
+		buzzer_set(true);
 		delay_ms(100);
-		DL_GPIO_clearPins(GPIOA, DL_GPIO_PIN_16); // 关闭蜂鸣器
-		DL_GPIO_clearPins(GPIOB, DL_GPIO_PIN_22);
+		buzzer_set(false);
 		delay_ms(100);
 	}
 }
