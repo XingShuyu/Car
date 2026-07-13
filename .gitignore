@@ -3,6 +3,7 @@
 # Build output directories
 Debug/
 Release/
+.codex/
 
 # Common embedded build artifacts
 *.out

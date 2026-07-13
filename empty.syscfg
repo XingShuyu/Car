@@ -223,7 +223,7 @@ TIMER1.$name = "TIM_0";
 
 UART1.$name                    = "UART_0";
 UART1.enabledInterrupts        = ["RX"];
-UART1.uartClkSrc               = "MFCLK";
+UART1.targetBaudRate           = 921600;
 UART1.peripheral.rxPin.$assign = "PA11";
 UART1.peripheral.txPin.$assign = "PA10";
 UART1.txPinConfig.$name        = "ti_driverlib_gpio_GPIOPinGeneric0";

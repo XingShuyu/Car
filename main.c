@@ -8,28 +8,10 @@
 #include "OLED/display.h"
 #include "Stage.h"
 #include "ti_msp_dl_config.h"
-#include "wdd35d4/wd35d4.h"
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
-#include <stdlib.h>
-#include <string.h>
 
-#define RAD_TO_DEG 57.29578f   // 将弧度制转换为角度制
-#define DEG_TO_RAD 0.01745329f // 角度制转化为弧度制
-#define G_TO_MS2 9.8f		   // 加速度取9.8
-#define DT_SAMPLE 0.01f		   // 采样周期10ms
-#define STANDUP_SAFE_ANGLE_DEG 15.0f
-#define STANDUP_DT_MAX_S 0.05f
-#define STANDUP_PWM_LIMIT_TICKS 1800
-#define STANDUP_KP_TICKS_PER_DEG 19.6f
-#define STANDUP_KD_TICKS_PER_DEGPS 2.0f
-#define STANDUP_KG_TICKS_PER_DEGPS 7.0f
-#define STANDUP_KGD_TICKS_PER_DEGPS 1.5f
-#define STANDUP_D_FILTER_ALPHA 0.0f
-#define STANDUP_LOG_INTERVAL_MS 50U
-#define STANDUP_DISPLAY_INTERVAL_MS 100U
-#define PDNum 10
 #define MOTOR_STEP_TEST_ENABLE 0
 #define MOTOR_STEP_TEST_TARGET_MMPS 500.0f
 #define MOTOR_STEP_TEST_CONTROL_PERIOD_US 500U
@@ -40,7 +22,6 @@
 #define MOTOR_STEP_TEST_STABLE_TIME_MS 500U
 #define MOTOR_STEP_TEST_LOG_INTERVAL_MS 100U
 #define MOTOR_STEP_TEST_PWM_SAT_TICKS 2000
-static float yaw_angle = 0.0f; // 偏航角（度），绕 Z 轴
 
 // 循迹pid
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
@@ -48,27 +29,16 @@ PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 // 基础速度
 int BaseSpeed = 450;
 int RoundSpeed = 200;
-float distance;
 // l1 l2距离
 float distence[2];
-// 黑线长度
-int blackLen[3];
 //-------------------
 // 各种时间声明
 // 获取电机速度时间戳
 uint32_t lastMotorSpeedTime = 0;
 // 数据输出时间戳
 uint32_t lastUartTime = 0;
-// 循迹时间戳
-uint32_t lastGrayscaleTime = 0;
-// 超声波时间戳
-uint32_t lastUltrasonicTime = 0;
-// IMU时间戳
-uint32_t lastIMUTime = 0;
 // 阶段时间戳
 uint32_t lastStageTime = 0;
-// OLED时间戳
-uint32_t lastOLEDTime = 0;
 // 状态机下标
 int TextIndex = 0;
 // 终点下标
@@ -77,8 +47,6 @@ int Goal = 0;
 int StageIndex = 0;
 // 阶段标志位
 int StageFlag = 0;
-// 蓝牙时间戳
-uint32_t lastBluetoothTime = 0;
 // maixcam串口相关
 volatile uint8_t maixcam_buff[32] = {0};
 volatile uint16_t maixcam_length = 0;
@@ -87,14 +55,9 @@ volatile uint8_t maixcam_flag = 0;
 volatile uint8_t recv0_buff[128] = {0};
 volatile uint16_t recv0_length = 0;
 volatile uint8_t recv0_flag = 0;
-// key
-uint8_t key_last = 0;
 
 // IMU相关
 IMU_Data_t IMUData;
-
-// WDD35D4角位移传感器实时数据
-WDD35D4_Data_t WDD35D4Data;
 
 // 灰度循迹地址
 bool grayscale[8];
@@ -106,12 +69,11 @@ volatile int32_t motorLeftCount = 0;
 volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
-void process_imu_for_horizontal_motion(float dt);
-void Display_WheelSpeeds();
 void buzzer_beep(void);
-static void StandupLog_EnqueueString(const char *s);
+#if MOTOR_STEP_TEST_ENABLE
 static void MotorClosedLoopStepTest(void);
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
+#endif
 
 int main(void) {
 	//--------------------------------------
@@ -131,11 +93,6 @@ int main(void) {
 	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN); // 初始化maixcam
 
 	TimeBase_Init(); // 初始化计时器
-
-	// WDD35D4角位移传感器初始化。上电时保持摆杆竖直，优先自动采样当前值作为零点；
-	// 若采样失败，则回退到头文件中的默认零点。
-	WDD35D4_Init();
-	WDD35D4_SetZeroRaw(990);
 
 	// 使能云台
 	Emm_Init(1);
@@ -187,7 +144,7 @@ int main(void) {
 		sprintf(str, "set: %d", TextIndex);
 		Display_ShowString(0, 0, str);
 	}
-	int16_t *command = commandList[TextIndex];
+	const StageCommand *command = commandList[TextIndex];
 	if (TextIndex == 3) {
 		TextIndex = 0;
 		startTime = getNowMs();
@@ -200,7 +157,6 @@ int main(void) {
 	}
 	startTime = getNowMs();
 	buzzer_beep();
-	lastIMUTime = getNowMs();
 	lastStageTime = getNowMs();
 	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 40, 40);
 
@@ -241,10 +197,20 @@ int main(void) {
 		}
 
 		if (getTimeMs(nowTime, lastStageTime) > 5) {
-			int16_t stage = command[StageIndex];
+			const StageCommand *stageCommand = &command[StageIndex];
+			Stage stage = stageCommand->type;
+			const void *stageData = stageCommand->data;
+			float numData = stageCommand->numData;
 			bool shouldStopRun = false;
+			(void)stageData;
 
 			switch (stage) {
+			case StageEnd: {
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+				shouldStopRun = true;
+				break;
+			}
 			case StageRush: {
 				// 猛冲一下
 				if (StageFlag == 0) {
@@ -409,27 +375,6 @@ int main(void) {
 				}
 				break;
 			}
-			case Stageultrasonic: {
-				// Stageultrasonic
-				// if (StageFlag == 0) {
-				// 	distance = 0.0;
-				// 	distance = Ultrasonic_GetDistance();
-				// 	if (distance != 0.0f) {
-				// 		StageFlag++;
-				// 	}
-				// }
-				// if (StageFlag == 1 && distance < 40.0f) {
-				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-				// 	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
-				// 	StageFlag = 0;
-				// 	StageIndex++;
-				// }
-				// if (StageFlag == 1 && distance >= 40.0f) {
-				// 	StageFlag = 0;
-				// 	StageIndex = sizeof(command) / sizeof(int16_t) - 1;
-				// }
-				break;
-			}
 			case StageStartJudge: {
 				// StageStartJudge
 				if (Grayscale_Cross(grayscale, 1)) {
@@ -521,7 +466,7 @@ int main(void) {
 				}
 				break;
 			}
-			case StageTurn145: {
+			case StageTurn: {
 				if (StageFlag == 0) {
 					IMUData.yaw = 0.0;
 					IMU_ZeroYaw();
@@ -530,159 +475,17 @@ int main(void) {
 				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -(RoundSpeed),
 													 (RoundSpeed));
 				(void)IMU_ReadAll(&IMUData);
-				if (IMUData.yaw > 132.0 && IMUData.yaw < 137.0) {
+				if (IMUData.yaw > (float)(numData-2) && IMUData.yaw < (float)(numData+2)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
 				} else {
-					float error = (-IMUData.yaw + 135) / 135 + 0.3;
+					float error = (-IMUData.yaw + numData) / numData + 0.3;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
 						&motor, -(error * RoundSpeed), (error * RoundSpeed));
 				}
-				break;
-			}
-			case StageStandUp: {
-				static float lastAngleError = 0.0f;
-				static float angleRateFiltered = 0.0f;
-				static float standupPositionM = 0.0f;
-				static uint32_t lastStandupLogTime = 0;
-				static uint32_t lastStandupDisplayTime = 0;
-				static bool hasLastAngle = false;
-				static bool standupLogHeaderPrinted = false;
-
-				if (StageFlag == 0) {
-					__disable_irq();
-					motorLeftCount = 0;
-					motorRightCount = 0;
-					__enable_irq();
-					standupPositionM = 0.0f;
-					lastStandupLogTime = nowTime;
-					lastStandupDisplayTime = nowTime;
-					lastAngleError = 0.0f;
-					angleRateFiltered = 0.0f;
-					hasLastAngle = false;
-					if (!standupLogHeaderPrinted) {
-						StandupLog_EnqueueString("theta_mrad,theta_dot_mradps,"
-												 "pos_mm,vel_mmps,pwm\r\n");
-						standupLogHeaderPrinted = true;
-					}
-					StageFlag = 1;
-				}
-
-				if (WDD35D4_ReadData(&WDD35D4Data)) {
-					int32_t leftCountSnapshot;
-					int32_t rightCountSnapshot;
-					float dt =
-						(float)getTimeMs(nowTime, lastStageTime) / 1000.0f;
-					if (dt <= 0.0f || dt > STANDUP_DT_MAX_S) {
-						dt = DT_SAMPLE;
-					}
-
-					__disable_irq();
-					leftCountSnapshot = motorLeftCount;
-					rightCountSnapshot = motorRightCount;
-					motorLeftCount = 0;
-					motorRightCount = 0;
-					__enable_irq();
-
-					float angleError = WDD35D4Data.signed_angle_deg;
-					float angleRate = 0.0f;
-					float leftDistanceM =
-						NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
-						1000.0f;
-					float rightDistanceM =
-						NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
-						1000.0f;
-					float standupDeltaM =
-						0.5f * (leftDistanceM + rightDistanceM);
-					float standupVelocityMps = standupDeltaM / dt;
-					int16_t pwmTicks = 0;
-					float angelSize, angleRateSize, angelPolarity = 1,
-													angelRatePolarity = 1;
-					if (angleError < 0) {
-						angelSize = -angleError;
-						angelPolarity = -1;
-					} else {
-						angelSize = angleError;
-					}
-
-					standupPositionM += standupDeltaM;
-					if (hasLastAngle) {
-						angleRate = (angleError - lastAngleError) / dt;
-					} else {
-						hasLastAngle = true;
-					}
-					if (angleRate < 0) {
-						angleRateSize = -angleRate;
-						angelRatePolarity = -1;
-					}
-					angleRateFiltered += STANDUP_D_FILTER_ALPHA *
-										 (angleRate - angleRateFiltered);
-					lastAngleError = angleError;
-
-					if (angleError > -STANDUP_SAFE_ANGLE_DEG &&
-						angleError < STANDUP_SAFE_ANGLE_DEG) {
-
-						float pwmOut =
-							(STANDUP_KP_TICKS_PER_DEG * angleError * PDNum) +
-							(STANDUP_KD_TICKS_PER_DEGPS * angleRate * PDNum) +
-							(angelPolarity *
-							 pow(STANDUP_KG_TICKS_PER_DEGPS, angelSize) *
-							 PDNum) +
-							(angelRatePolarity *
-							 pow(STANDUP_KGD_TICKS_PER_DEGPS, angleRateSize) *
-							 PDNum);
-						if (pwmOut > (float)STANDUP_PWM_LIMIT_TICKS) {
-							pwmOut = (float)STANDUP_PWM_LIMIT_TICKS;
-						} else if (pwmOut < (float)-STANDUP_PWM_LIMIT_TICKS) {
-							pwmOut = (float)-STANDUP_PWM_LIMIT_TICKS;
-						}
-
-						pwmTicks = (int16_t)pwmOut;
-
-						if (getTimeMs(nowTime, lastStandupDisplayTime) >=
-							STANDUP_DISPLAY_INTERVAL_MS) {
-							// char str[16];
-							// sprintf(str, "pwm:%d", pwmTicks);
-							// Display_ShowString(1, 0, str);
-							lastStandupDisplayTime = nowTime;
-						}
-						NewMotor_SetWheelPwmTicks(pwmTicks, pwmTicks);
-					} else {
-						NewMotor_SetWheelPwmTicks(0, 0);
-						lastAngleError = 0.0f;
-						angleRateFiltered = 0.0f;
-						hasLastAngle = false;
-					}
-
-					// if (getTimeMs(nowTime, lastStandupLogTime) >=
-					// 	STANDUP_LOG_INTERVAL_MS) {
-					// 	int32_t thetaMrad =
-					// 		(int32_t)(angleError * DEG_TO_RAD * 1000.0f);
-					// 	int32_t thetaDotMradps =
-					// 		(int32_t)(angleRateFiltered * DEG_TO_RAD *
-					// 				  1000.0f);
-					// 	int32_t posMm = (int32_t)(standupPositionM * 1000.0f);
-					// 	int32_t velMmps =
-					// 		(int32_t)(standupVelocityMps * 1000.0f);
-					// 	char logLine[56];
-
-					// 	snprintf(logLine, sizeof(logLine),
-					// 			 "%ld,%ld,%ld,%ld,%d\r\n", (long)thetaMrad,
-					// 			 (long)thetaDotMradps, (long)posMm,
-					// 			 (long)velMmps, (int)pwmTicks);
-					// 	StandupLog_EnqueueString(logLine);
-					// 	lastStandupLogTime = nowTime;
-					// }
-				} else {
-					NewMotor_SetWheelPwmTicks(0, 0);
-					lastAngleError = 0.0f;
-					angleRateFiltered = 0.0f;
-					hasLastAngle = false;
-				}
-
 				break;
 			}
 			case StageSkip: {
@@ -690,6 +493,31 @@ int main(void) {
 				int offset = (3 - Goal) * 3;
 				StageIndex += offset + 1;
 				break;
+			}
+			case StageForward: {
+				float avgDistance;
+				if (StageFlag == 0) {
+					leftDistance = 0;
+					rightDistance = 0;
+					StageFlag++;
+				}
+				else {
+					avgDistance = 0.5*(NewMotor_EncoderDeltaToDistanceMm(leftDistance)+NewMotor_EncoderDeltaToDistanceMm(rightDistance));
+					if (fabs(numData-avgDistance)<5.0) {
+						NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
+						StageFlag = 0;
+						StageIndex++;
+					}
+					if (fabs(numData-avgDistance)<20.0) {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 10*(numData-avgDistance), 10*(numData-avgDistance));
+					}
+					else {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+						char temp[21];
+						sprintf(temp, "len:%.2f",fabs(numData-avgDistance));
+						Display_ShowString(2, 0, temp);
+					}
+				}
 			}
 			default:
 				break;
@@ -700,67 +528,10 @@ int main(void) {
 			}
 		}
 
-		// if (getTimeMs(nowTime, lastGrayscaleTime) > 50 &&
-		// Grayscale_Cross(grayscale, 1)) { 	lastGrayscaleTime = nowTime;
-
-		// }
-
-		// // 基础循迹
-		// if (getTimeMs(nowTime, lastGrayscaleTime) > 10) {
-		// 	lastGrayscaleTime = nowTime;
-		// 	Motor_FixError(Grayscale_Line(grayscale));
-		// }
-		// // 判断十字路口
-		// if (Grayscale_Cross(grayscale, 0) == true) {
-		// 	// 超声波测距
-		// 	if (getTimeMs(nowTime, lastUltrasonicTime) > 1000) {
-		// 		lastUltrasonicTime = nowTime;
-		// 		distance = Ultrasonic_GetDistance();
-		// 	}
-		// }
-		// uint32_t now = getNowMs();
-		// float dt = (float)(now - last_time) / 1000.0f;
-		// if (dt > 0.1f)
-		// dt = 0.01f; // 限制最大 dt，防止突变
-		// last_time = now;
-
-		// // 处理 IMU 数据，更新偏航角、速度、位移
-		// process_imu_for_horizontal_motion(dt);
-
-		// // 延时到下一个周期（非精确，仅示例）
-		// delay_ms((int)(DT_SAMPLE * 100));
-
-		// if (getTimeMs(nowTime, lastGrayscaleTime) > 1000) {
-		// 	lastGrayscaleTime = nowTime;
-		// 	// 输出结果（可通过串口查看）
-		// 	printf(
-		// 		"Yaw: %.1f deg",yaw_angle);
-		// }
-		// if (maixcam_flag) {
-		// 	maixcam_flag = 0;
-		// 	// printf("RAW: ");
-		// 	// for (int i = 0; i < maixcam_length && i < 20; i++) {
-		// 	// 	printf("%02X ", maixcam_buff[i]);
-		// 	// }
-		// 	// printf("\n");
-		// 	int off_x, off_y;
-		// 	if (sscanf((char *)maixcam_buff, "%d,%d", &off_x, &off_y) ==
-		// 		2) {
-		// 		printf("[MaixCAM] X=%d Y=%d", off_x, off_y);
-		// 	}
-		// }
-		// if (getTimeMs(nowTime, lastOLEDTime) > 1000) {
-		// 	// // 显示左右轮速度
-		// 	// Display_WheelSpeeds();
-		// 	// Display_Clear();
-		// }
 	}
 }
 
-static void StandupLog_EnqueueString(const char *s) {
-	USART_WriteAsync(s);
-}
-
+#if MOTOR_STEP_TEST_ENABLE
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps) {
 	float absTarget = fabsf(target_mmps);
 	float absMeasured = fabsf(measured_mmps);
@@ -1019,6 +790,7 @@ static void MotorClosedLoopStepTest(void) {
 		USART_PollTx();
 	}
 }
+#endif
 
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
 // 这里做一次分发，避免中断落入默认处理函数导致“卡死”。
@@ -1114,20 +886,6 @@ void UART_MAIXCAM_INST_IRQHandler(void) {
 		break;
 	}
 }
-// 计算姿态角和位移的函数(dt单位秒)
-void process_imu_for_horizontal_motion(float dt) {
-	IMU_Data_t data;
-	if (!IMU_ReadAll(&data)) {
-		printf("IMU read error\n");
-		return;
-	}
-	if (data.gz < 0.01 && data.gz > -0.01) {
-
-	} else {
-		yaw_angle += data.gz * dt;
-	}
-}
-
 // 蜂鸣器鸣响三声
 void buzzer_beep(void) {
 	for (int i = 0; i < 3; i++) {
@@ -1139,21 +897,3 @@ void buzzer_beep(void) {
 		delay_ms(100);
 	}
 }
-// // 显示左右轮速度
-// void Display_WheelSpeeds() {
-// 	char left_str[16], right_str[16];
-
-// 	// 格式化左轮速度字符串
-// 	sprintf(left_str, "L:%.2f m/s", motorLeftSpeed);
-// 	// 格式化右轮速度字符串
-// 	sprintf(right_str, "R:%.2f m/s", motorRightSpeed);
-
-// 	// 在OLED上显示（左轮在上，右轮在下）
-// 	Display_ShowString(0, 0, left_str);
-// 	Display_ShowString(2, 0, right_str);
-
-// 	// 可选：显示速度差
-// 	float speed_diff = fabs(motorLeftSpeed - motorRightSpeed);
-// 	sprintf(left_str, "Diff:%.2f m/s", speed_diff);
-// 	Display_ShowString(4, 0, left_str);
-// }
