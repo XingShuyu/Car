@@ -174,9 +174,21 @@ void NewMotorSpeedCtrl_ResetAndStop(NewMotor_SpeedCtrl *ctrl, NewMotor_StopMode 
 
     ctrl->pwm_left_ticks = 0;
     ctrl->pwm_right_ticks = 0;
-    ctrl->enabled = 0;
 
     NewMotor_Stop(stop_mode);
+}
+
+void NewMotorSpeedCtrl_Reset(NewMotor_SpeedCtrl *ctrl)
+{
+    if (ctrl == NULL) {
+        return;
+    }
+
+    nm_pid_reset(&ctrl->pid_left);
+    nm_pid_reset(&ctrl->pid_right);
+
+    ctrl->pwm_left_ticks = 0;
+    ctrl->pwm_right_ticks = 0;
 }
 
 void NewMotorSpeedCtrl_GetMeasuredWheelMmps(const NewMotor_SpeedCtrl *ctrl, float *left_mmps, float *right_mmps)

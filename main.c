@@ -26,9 +26,9 @@
 // 循迹pid
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
-// 基础速度
-int BaseSpeed = 450;
-int RoundSpeed = 200;
+// 基础速度 
+int BaseSpeed = 300;
+int RoundSpeed = 150;
 // l1 l2距离
 float distence[2];
 //-------------------
@@ -70,6 +70,7 @@ volatile int32_t motorRightCount = 0;
 int leftDistance, rightDistance;
 
 void buzzer_beep(void);
+static void BluetoothSerial_OnRxByte(uint8_t receivedData);
 #if MOTOR_STEP_TEST_ENABLE
 static void MotorClosedLoopStepTest(void);
 static bool MotorStepTest_IsReached(float measured_mmps, float target_mmps);
@@ -85,6 +86,7 @@ int main(void) {
 	// 开启 GPIOA 和 GPIOB 的全局中断 (因为编码器引脚跨越了这两个端口)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
+	USART_SetRxByteCallback(BluetoothSerial_OnRxByte);
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
 
@@ -104,9 +106,9 @@ int main(void) {
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
-	NewMotorSpeedCtrl_SetPid(&motor, 13.0,800.0, 0.0);
+	NewMotorSpeedCtrl_SetPid(&motor, 1.0,30.0, 0.0);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	//NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
@@ -139,7 +141,7 @@ int main(void) {
 	startTime = getNowMs();
 	// int TempIndex = 0;
 	TextIndex = 0;
-	while (getTimeMs(getNowMs(), startTime) < 3000) {
+	while (getTimeMs(getNowMs(), startTime) < 1000) {
 		char str[8];
 		sprintf(str, "set: %d", TextIndex);
 		Display_ShowString(0, 0, str);
@@ -158,7 +160,7 @@ int main(void) {
 	startTime = getNowMs();
 	buzzer_beep();
 	lastStageTime = getNowMs();
-	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 40, 40);
+	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 
 	while (1) {
 		// 更新当前时间
@@ -166,7 +168,7 @@ int main(void) {
 		USART_PollTx();
 		// 每30ms获取电机运行圈数
 		uint32_t nowUs = getNowUs();
-		if (getTimeUs(nowUs, lastMotorSpeedTime) > 100) {
+		if (getTimeUs(nowUs, lastMotorSpeedTime) > 30000) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
 			motor.sample_period_s =
@@ -186,10 +188,11 @@ int main(void) {
 			int sped =
 				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
 					  motor.sample_period_s);
+			printf("Back:%d\n", sped);
 			if (getTimeMs(nowTime, lastUartTime) >=
 				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
 				lastUartTime = nowTime;
-				printf("Back:%d\n", sped);
+				
 			}
 
 			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
@@ -236,6 +239,8 @@ int main(void) {
 						0.8 * speedP * BaseSpeed);
 				}
 				if (StageFlag <= 10 && StageFlag >= 2) {
+
+
 					StageFlag++;
 				}
 				if (StageFlag >= 11) {
@@ -443,48 +448,59 @@ int main(void) {
 				// 	NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 				// 	StageFlag++;
 				// }
-				grayscalePid.t = getTimeMs(nowTime, lastStageTime);
-				Grayscale_Line(&grayscalePid, grayscale);
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
-													 0.5 * -BaseSpeed);
-				if (grayscale[0] == 0 && grayscale[1] == 0 &&
-					grayscale[2] == 0 && grayscale[3] == 0 &&
-					grayscale[4] == 0 && grayscale[5] == 0 &&
-					grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
-					StageFlag++;
-				}
-				if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
-					  grayscale[2] == 0 && grayscale[3] == 0 &&
-					  grayscale[4] == 0 && grayscale[5] == 0 &&
-					  grayscale[6] == 0 && grayscale[7] == 0) &&
-					StageFlag == 1) {
-					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-					NewMotor_Stop(NEWMOTOR_STOP_COAST);
-					buzzer_beep();
-					StageFlag = 0;
-					shouldStopRun = true;
-				}
+
+				
+				// grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+				// Grayscale_Line(&grayscalePid, grayscale);
+				// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
+				// 									 0.5 * -BaseSpeed);
+				// if (grayscale[0] == 0 && grayscale[1] == 0 &&
+				// 	grayscale[2] == 0 && grayscale[3] == 0 &&
+				// 	grayscale[4] == 0 && grayscale[5] == 0 &&
+				// 	grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
+				// 	StageFlag++;
+				// }
+				// if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
+				// 	  grayscale[2] == 0 && grayscale[3] == 0 &&
+				// 	  grayscale[4] == 0 && grayscale[5] == 0 &&
+				// 	  grayscale[6] == 0 && grayscale[7] == 0) &&
+				// 	StageFlag == 1) {
+				// 	NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				// 	NewMotor_Stop(NEWMOTOR_STOP_COAST);
+				// 	buzzer_beep();
+				// 	StageFlag = 0;
+				// 	shouldStopRun = true;
+				// }
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				NewMotor_Stop(NEWMOTOR_STOP_COAST);
 				break;
 			}
 			case StageTurn: {
+				static int isRight = -1;
 				if (StageFlag == 0) {
+					if (numData<0.0) {
+						isRight = 1;
+					}
+					else {
+						isRight = -1;
+					}
 					IMUData.yaw = 0.0;
 					IMU_ZeroYaw();
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -(RoundSpeed),
-													 (RoundSpeed));
+				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -isRight*(RoundSpeed),
+													 isRight*(RoundSpeed));
 				(void)IMU_ReadAll(&IMUData);
-				if (IMUData.yaw > (float)(numData-2) && IMUData.yaw < (float)(numData+2)) {
+				if (IMUData.yaw > (float)(numData-0.5) && IMUData.yaw < (float)(numData+0.5)) {
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
 				} else {
-					float error = (-IMUData.yaw + numData) / numData + 0.3;
+					float error = (-IMUData.yaw + numData) / numData + 0.1;
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, -(error * RoundSpeed), (error * RoundSpeed));
+						&motor, -isRight*(error * RoundSpeed), isRight*(error * RoundSpeed));
 				}
 				break;
 			}
@@ -495,28 +511,40 @@ int main(void) {
 				break;
 			}
 			case StageForward: {
+				static int32_t stageSpeed = 0;
+				static float stageDistence = 0.0;
 				float avgDistance;
 				if (StageFlag == 0) {
 					leftDistance = 0;
 					rightDistance = 0;
+					if (stageData == NULL) {
+						stageSpeed = BaseSpeed;
+						stageDistence = numData;
+					}
+					else {
+						stageSpeed = ((const StageForwardData*)stageData)->speed;
+						stageDistence = ((const StageForwardData*)stageData)->length;
+					}
+					NewMotorSpeedCtrl_Reset(&motor);
 					StageFlag++;
 				}
 				else {
 					avgDistance = 0.5*(NewMotor_EncoderDeltaToDistanceMm(leftDistance)+NewMotor_EncoderDeltaToDistanceMm(rightDistance));
-					if (fabs(numData-avgDistance)<5.0) {
+					if (fabs(stageDistence-avgDistance)<5.0) {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0,0);
 						NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 						StageFlag = 0;
 						StageIndex++;
 					}
-					if (fabs(numData-avgDistance)<20.0) {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 10*(numData-avgDistance), 10*(numData-avgDistance));
+					else if (fabs(stageDistence-avgDistance)<70.0) {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (stageDistence-avgDistance)/70.0*stageSpeed, (stageDistence-avgDistance)/70.0*stageSpeed);
 					}
 					else {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
-						char temp[21];
-						sprintf(temp, "len:%.2f",fabs(numData-avgDistance));
-						Display_ShowString(2, 0, temp);
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, stageSpeed, stageSpeed);
 					}
+					char temp[21];
+						sprintf(temp, "len:%.2f",fabs(stageDistence-avgDistance));
+						//Display_ShowString(2, 0, temp);
 				}
 			}
 			default:
@@ -839,34 +867,19 @@ void GROUP1_IRQHandler(void) {
 
 // 串口的中断服务函数
 void UART_0_INST_IRQHandler(void) {
-	uint8_t receivedData = 0;
+	USART_IRQHandler();
+}
 
-	// 如果产生了串口中断
-	// If a serial port interrupt occurs
-	switch (DL_UART_getPendingInterrupt(UART_0_INST)) {
-	case DL_UART_IIDX_RX: // 如果是接收中断	If it is a receive interrupt
-
-		while (!DL_UART_Main_isRXFIFOEmpty(UART_0_INST)) {
-			// 接收发送过来的数据保存	Receive and save the data sent
-			receivedData = DL_UART_Main_receiveData(UART_0_INST);
-
-			// 检查缓冲区是否已满	Check if the buffer is full
-			if (recv0_length < 128 - 1 && receivedData != '\0' &&
-				receivedData != '\n') {
-				recv0_buff[recv0_length++] = receivedData;
-			} else {
-				recv0_length = 0;
-			}
-
-			// 标记接收标志	Mark receiving flag
-			recv0_flag = 1;
-		}
-
-		break;
-
-	default: // 其他的串口中断	Other serial port interrupts
-		break;
+static void BluetoothSerial_OnRxByte(uint8_t receivedData) {
+	// DMA 每收到 1 字节回调一次，保持原 UART0 接收缓冲语义。
+	if (recv0_length < 128 - 1 && receivedData != '\0' &&
+		receivedData != '\n') {
+		recv0_buff[recv0_length++] = receivedData;
+	} else {
+		recv0_buff[recv0_length] = '\0';
+		recv0_length = 0;
 	}
+	recv0_flag = 1;
 }
 // maixcam的串口中断服务
 void UART_MAIXCAM_INST_IRQHandler(void) {

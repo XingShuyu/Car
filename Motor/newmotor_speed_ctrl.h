@@ -114,6 +114,13 @@ void NewMotorSpeedCtrl_UpdateByEncoderDelta(NewMotor_SpeedCtrl *ctrl, int32_t le
 void NewMotorSpeedCtrl_ResetAndStop(NewMotor_SpeedCtrl *ctrl, NewMotor_StopMode stop_mode);
 
 /**
+ * @brief 清空 PID 内部状态。
+ *
+ * @param ctrl 控制器对象指针，不能为空。
+ */
+void NewMotorSpeedCtrl_Reset(NewMotor_SpeedCtrl *ctrl);
+
+/**
  * @brief 获取当前估计的左右轮速度（单位：mm/s）。
  *
  * @param ctrl 控制器对象指针，不能为空。
