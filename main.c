@@ -489,8 +489,8 @@ int main(void) {
 				NewMotorSpeedCtrl_SetTargetWheelMmps(
 					&motor, -isRight * (RoundSpeed), isRight * (RoundSpeed));
 				(void)IMU_ReadAll(&IMUData);
-				if (IMUData.yaw > (float)(numData - 0.5) &&
-					IMUData.yaw < (float)(numData + 0.5)) {
+				if (IMUData.yaw > (float)(numData - 0.3) &&
+					IMUData.yaw < (float)(numData + 0.3)) {
 
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
@@ -531,7 +531,8 @@ int main(void) {
 						stageDistence =
 							((const StageForwardData *)stageData)->length;
 					}
-					// NewMotorSpeedCtrl_Reset(&motor);
+					IMUData.yaw = 0.0;
+					IMU_ZeroYaw();
 					StageFlag++;
 				} else {
 					avgDistance =
@@ -558,8 +559,10 @@ int main(void) {
 								  1.0) *
 								stageSpeed);
 					} else {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, stageSpeed,
-															 stageSpeed);
+						IMU_ReadAll(&IMUData);
+						
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, stageSpeed-20*IMUData.yaw,
+															 stageSpeed+20*IMUData.yaw);
 					}
 					char temp[21];
 					sprintf(temp, "len:%.2f",
