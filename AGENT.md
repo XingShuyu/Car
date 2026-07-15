@@ -1,7 +1,8 @@
 这是一个TI MSPM0G3507的循迹小车项目
 引脚定义在 引脚定义.md 中
 各个模块的功能都要封装在对应的文件夹中
-编译使用`D:\\ElecCompetation\\TI\\Softwares\\CCStudio\\ccs\\utils\\bin\\gmake`和`D:/ElecCompetation/TI/Softwares/CCStudio/ccs/tools/compiler/ti-cgt-armllvm_4.0.4.LTS/bin/tiarmclang.exe`
+编译使用`D:\\ElecCompetation\\TI\\Softwares\\CCS\\ccs\\utils\\bin\\gmake.exe`和`D:/ElecCompetation/TI/Softwares/CCStudio/ccs/tools/compiler/ti-cgt-armllvm_4.0.4.LTS/bin/tiarmclang.exe`
+SDK位置`D:\ElecCompetation\TI\Softwares\MSPM0_SDK`
 代码要求写清注释，尽量保持模块功能解耦
 
 ---
@@ -11,270 +12,197 @@
 ## 1. 项目概览
 
 - **硬件平台**: TI MSPM0G3507 (LQFP-64, ARM Cortex-M0+)
-- **功能**: 车载倒立摆/循迹小车，8路灰度传感器循迹 + WDD35D4摆杆角度检测 + MPU6050/JY901S姿态感知 + 编码器速度闭环
+- **功能**: 循迹小车，8路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信
 - **开发环境**: TI CCS (Code Composer Studio), SysConfig 自动生成 `ti_msp_dl_config.c/h`
 - **SDK**: mspm0_sdk@2.10.00.04
 - **编译链**: tiarmclang (LLVM) + gmake
-- **主控逻辑**: `main.c` — 全部业务逻辑集中在主循环，通过 `Stage.h` 定义的阶段枚举驱动状态机
+- **主控逻辑**: `main.c` 只保留系统初始化、启动按键选择、主循环调度；阶段业务在 `Stage/`，电机运行时在 `Motor/`
 
 ## 2. 目录结构
 
 ```
 Main/
-├── main.c                          # 主程序：初始化 + 阶段状态机主循环 + ISR
-├── Stage.h                         # 阶段枚举定义 + 命令序列 (commandList)
+├── main.c                          # 程序入口：初始化 + 路线选择 + 主循环调度
 ├── 引脚定义.md                      # 完整引脚映射表
 ├── AGENT.md                        # 本文件
-├── CLAUDE.md                       # 项目约束说明
 │
-├── BasicMicroLib/                  # 基础库（与硬件抽象无关的工具）
-│   ├── delay.h / delay.c           # 微秒/毫秒延时 (delay_us, delay_ms)
-│   ├── getTime.h / getTime.c       # SysTick时间基准 (getNowMs, getTimeMs)
-│   ├── usart.h / usart.c           # UART初始化与发送 (USART_Init, USART_SendData)
-│   └── PID.h / PID.c               # 通用PID结构体与计算函数 (PID_calculate)
+├── Stage/                          # 比赛阶段与阶段状态机
+│   ├── Stage.h                     # 阶段枚举、命令结构体、commandList声明
+│   ├── stage_commands.c            # command0~command3命令序列定义
+│   └── stage_runner.h / .c         # 阶段switch-case执行器
 │
-├── Motor/                          # 电机驱动与速度闭环
-│   ├── newmotor_driver.h / .c      # 底层PWM驱动 (NewMotor_SetWheelPwmTicks, NewMotor_Stop)
-│   └── newmotor_speed_ctrl.h / .c  # 速度闭环PID控制器 (NewMotorSpeedCtrl_*, 增量式PID)
+├── Motor/                          # 电机驱动、编码器与速度闭环
+│   ├── newmotor_driver.h / .c      # 底层PWM驱动
+│   ├── newmotor_speed_ctrl.h / .c  # 双轮速度闭环PID控制器
+│   ├── motor_encoder.h / .c        # 编码器中断计数与原子读取/清零
+│   ├── motor_runtime.h / .c        # 主循环10ms闭环更新、里程累计、目标速度接口
+│   └── motor_step_test.h / .c      # 可选电机闭环阶跃测试
+│
+├── Drivers/                        # 板级中断分发与简单外设
+│   ├── board_isr.h / .c            # GROUP1/UART ISR入口与分发
+│   ├── button_select.h / .c        # 按键路线/Goal选择计数
+│   └── buzzer.h / .c               # 蜂鸣器三声提示
+│
+├── Communication/                  # 应用层串口接收缓冲
+│   ├── bluetooth_serial.h / .c     # UART0蓝牙CRLF分帧与recv0缓冲
+│   └── maixcam_serial.h / .c       # MaixCam UART DMA接收与CRLF分帧
+│
+├── BasicMicroLib/                  # 基础库
+│   ├── delay.h / delay.c           # 微秒/毫秒延时
+│   ├── getTime.h / getTime.c       # SysTick时间基准
+│   ├── usart.h / usart.c           # UART0 DMA收发与printf输出
+│   └── PID.h / PID.c               # 通用PID结构体与计算函数
 │
 ├── GrayScale/                      # 灰度传感器
-│   ├── grayscale_sensor.h / .c     # 传感器底层读取 (8通道CD4051模拟开关)
-│   └── Grayscale_Scan.h / .c       # 循线算法 + 十字/直角判断 (Grayscale_Line, Grayscale_Cross)
+│   ├── grayscale_sensor.h / .c     # 8通道CD4051读取与稳定单通道读取
+│   └── Grayscale_Scan.h / .c       # 循线PID、十字/直角判断
 │
 ├── IMU/                            # IMU惯性测量
 │   ├── imu.h / imu_data.h          # 统一IMU入口与标准数据结构
-│   ├── MPU6050/mpu6050.h / .c      # MPU6050 I2C驱动 (含校准、低通滤波、零偏补偿)
-│   └── JY901S/jy901s.h / .c        # JY901S/WT901 I2C驱动
+│   ├── HWT101/hwt101.h / .c        # HWT101驱动
+│   ├── JY901S/jy901s.h / .c        # JY901S/WT901驱动
+│   └── MPU6050/mpu6050.h / .c      # MPU6050驱动
 │
-├── wdd35d4/                        # WDD35D4角位移传感器
-│   └── wd35d4.h / .c               # PB17/ADC1_CH4采样 + 标定 + 默认直通角度换算
-│
-├── ultrasonic/                     # 超声波测距
-│   └── ultrasonic.h / .c           # HC-SR04旧驱动；PB17已改作WDD35D4 ADC后不再初始化
-│
-├── OLED/                           # 显示屏
-│   ├── oled.h / oled.c             # SSD1306底层I2C驱动
-│   └── display.h / display.c       # 上层显示封装 (Display_ShowString, Display_Clear)
-│
-├── Emm/                            # 云台舵机 (串口控制)
-│   └── Emm.h / Emm.c               # Emm舵机协议 (Emm_Init, Emm_Loc_Control, Emm_Stop)
-│
-└── Debug/                          # SysConfig自动生成
-    └── ti_msp_dl_config.h / .c     # 引脚/外设/中断配置（由SysConfig生成，勿手动改）
+├── wdd35d4/                        # WDD35D4角位移传感器驱动（当前主流程未调用）
+├── ultrasonic/                     # HC-SR04旧驱动（当前主流程未调用）
+├── OLED/                           # OLED底层驱动与显示封装
+├── Emm/                            # 云台舵机串口协议
+└── Debug/                          # CCS/SysConfig自动生成和构建产物，不手动维护
 ```
 
-## 3. 模块详解
+## 3. 主程序与阶段系统
 
-### 3.1 主程序 (`main.c`)
+### 3.1 `main.c`
 
-**核心入口**，包含以下关键部分：
+`main.c` 当前只负责：
 
 | 区域 | 功能 |
 |------|------|
-| 全局变量声明 | PID参数、速度、时间戳、阶段索引、编码器计数、WDD35D4实时数据等 |
-| `main()` 初始化段 | 外设初始化、WDD35D4自动零点校准、IMU初始化、OLED按键选模式 |
-| 主循环 | 两段定时：编码器速度闭环更新 + 阶段状态机 |
-| 阶段switch-case | 根据 `command[StageIndex]` 执行对应阶段逻辑 |
-| `GROUP1_IRQHandler()` | GPIOA/GPIOB 编码器脉冲计数 + 按键中断 |
-| `UART_0_INST_IRQHandler()` | 串口0接收中断（蓝牙数据） |
-| `UART_MAIXCAM_INST_IRQHandler()` | MaixCAM视觉模块串口接收 |
-| `process_imu_for_horizontal_motion()` | IMU偏航角积分（当前未在主循环启用） |
-| `buzzer_beep()` | 蜂鸣器鸣响3声 |
+| 初始化段 | `SYSCFG_DL_init()`、通信/中断/OLED/计时器/云台/电机/IMU初始化 |
+| 启动选择 | `ButtonSelect` 在开机窗口内选择 `commandList[index]`；当 `index=3` 时再选择 `Goal` |
+| 主循环 | `USART_PollTx()`、`MaixCamSerial_Poll()`、`MotorRuntime_Update()`、`StageRunner_Update()` |
 
-**关键全局变量**:
-- `motorLeftCount` / `motorRightCount`: 编码器脉冲累计（ISR中更新，主循环读取并清零）
-- `StageIndex` / `StageFlag`: 阶段状态机索引与子状态
-- `TextIndex`: 按键选择的命令序列编号
-- `grayscale[8]`: 8路灰度传感器二值化状态
-- `BaseSpeed` (默认450) / `RoundSpeed` (默认200): 基础线速度和旋转速度
+当前基础速度配置在 `main.c` 的 `stageConfig`：
+- `base_speed_mmps = 300`
+- `round_speed_mmps = 150`
 
-### 3.2 阶段系统 (`Stage.h`)
+### 3.2 `Stage/`
 
-定义了比赛的全部动作阶段：
+`Stage/Stage.h` 定义阶段枚举与命令结构，`Stage/stage_commands.c` 定义4套命令序列：
 
 ```c
-enum Stage {
-    StageRush=1,       // 猛冲
-    StageRight=2,      // 循迹+右转判断
-    StageRightRound=3, // 右原地旋转
-    StageLeft=4,       // 循迹+左转判断
-    StageLeftRound=5,  // 左原地旋转
-    StageCross=6,      // 十字路口检测+L1/L2测距
-    Stageultrasonic=7, // 超声波避障（已注释未启用）
-    StageStartJudge=8, // 起点判断（AB/AD路线分支）
-    StageFinsih=9,     // 终点停车
-    StageBizz=10,      // 停车鸣笛
-    StageFake=11,      // 假线过滤
-    StageStop=12,      // 倒车退线
-    StageTurn145=13,   // IMU控角度145°转弯
-    StageSkip=14       // 跳转（根据Goal选路线终点）
-};
+extern const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT];
 ```
 
-`commandList[]` 包含4套预置命令序列（对应按键选择），`command0`~`command3`。
+常用阶段：
 
-### 3.3 电机模块 (`Motor/`)
+```c
+StageRush       // 猛冲
+StageRight      // 循迹 + 右直角判断
+StageRightRound // 右原地旋转
+StageLeft       // 循迹 + 左直角判断
+StageLeftRound  // 左原地旋转
+StageCross      // 十字路口检测 + L1/L2测距
+StageStartJudge // 起点判断
+StageFinsih     // 终点停车（历史拼写保留）
+StageBizz       // 停车鸣笛
+StageFake       // 假线过滤
+StageStop       // 倒车退线实验逻辑，目前仍为注释保留
+StageTurn       // IMU控角度转弯
+StageSkip       // 根据Goal跳转路线
+StageForward    // 编码器定距前进
+```
 
-**`newmotor_driver.h/c`** — 底层PWM驱动:
-- `NewMotor_InitPwm()`: 初始化左右电机PWM定时器
-- `NewMotor_SetWheelPwmTicks(left, right)`: 设置PWM（含死区补偿），正=前进负=后退
-- `NewMotor_Stop(mode)`: 停止（COAST滑行 / BRAKE电子刹车）
-- `NewMotor_EncoderDeltaToDistanceMm(counts)`: 编码器增量→位移(mm)
-- `NewMotor_EncoderDeltaToWheelSpeedMmps(counts, dt)`: 编码器增量→速度(mm/s)
-- 机械参数宏: `NEWMOTOR_WHEEL_DIAMETER_MM`(66mm), `NEWMOTOR_WHEEL_BASE_MM`(45mm), `NEWMOTOR_GEAR_RATIO`(28:1)
+`StageStandUp` 和 `Stageultrasonic` 枚举保留，但当前 `StageRunner_Update()` 没有实际分支。
 
-**`newmotor_speed_ctrl.h/c`** — 速度闭环PID:
-- `NewMotorSpeedCtrl_Init()`: 初始化双轮速度控制器
-- `NewMotorSpeedCtrl_SetTargetWheelMmps()`: 设左右轮目标速度(mm/s)
-- `NewMotorSpeedCtrl_SetTargetRobot()`: 差速底盘模型（vx线速度 + wz角速度→左右轮速度）
-- `NewMotorSpeedCtrl_UpdateByEncoderDelta()`: 每周期调用，增量式PID计算并输出PWM
+### 3.3 添加或修改阶段
 
-### 3.4 灰度传感器 (`GrayScale/`)
+1. 新增阶段枚举：改 `Stage/Stage.h`
+2. 新增阶段执行逻辑：改 `Stage/stage_runner.c`
+3. 新增命令序列或调整路线：改 `Stage/stage_commands.c`
+4. 调整默认速度：改 `main.c` 的 `stageConfig`，或在命令中使用 `StageForwardData`
 
-**`grayscale_sensor.h/c`** — 底层8路读取:
-- 通过 CD4051 模拟开关选通8通道，`AD0/AD1/AD2` 三位地址线选通道
-- `Grayscale_Sensor_Read_All(bool[8])`: 读全部8通道
-- `_read_channel_stable(ch)`: 单通道稳定读取（带滤波）
-- 阈值归一化: `THRESHOLD=1000`
+## 4. 电机与中断数据流
 
-**`Grayscale_Scan.h/c`** — 循线算法:
-- `Grayscale_Line(pid, sensor_values)`: 返回转向修正值（角速度 rad/s），内部使用位置式PID处理偏差
-- `Grayscale_Cross(sensor_values, status)`: 判断十字/直角 (status: 0=十字/丁字, 1=右直角, 2=左直角)
-- `Grayscale_Zero(sensor_values)`: 重置传感器状态（中间两个传感器设为1）
-- `Grayscale_OnlineNum(sensor_values)`: 返回在线传感器数量
-- 传感器权重: `{-3.0, -2.7, -2.5, -2.0, 2.0, 2.5, 2.7, 3.0}` (0最左, 7最右)
+### 4.1 电机模块
 
-### 3.5 IMU (`IMU/`)
+- `Motor/motor_encoder.c`: ISR中累计编码器增量，`MotorEncoder_ReadAndClear()` 原子读取并清零。
+- `Motor/motor_runtime.c`: 持有 `NewMotor_SpeedCtrl motor`，每约10ms读取编码器增量、累计左右里程、调用 `NewMotorSpeedCtrl_UpdateByEncoderDelta()`。
+- `StageRunner` 不直接访问编码器计数或电机控制器，只通过 `MotorRuntime_SetTargetWheelMmps()`、`MotorRuntime_SetTargetRobot()`、`MotorRuntime_ResetDistance()`、`MotorRuntime_Get*DistanceMm()` 访问运动状态。
 
-`IMU/imu_data.h` 定义统一数据结构 `JY901S_Data_t`，并提供 `IMU_Data_t` 与旧
-`MPU6050_Data_t` 兼容别名。上层业务代码优先使用 `JY901S_Data_t` 或 `IMU_Data_t`。
+### 4.2 中断映射
 
-完整MPU6050 I2C驱动，使用 `I2C0` (PA28=SDA, PA31=SCL)，地址 0x68:
+| ISR | 所在文件 | 功能 |
+|-----|----------|------|
+| `GROUP1_IRQHandler` | `Drivers/board_isr.c` | 查询GPIOA/GPIOB pending并分发给编码器和按键模块 |
+| `UART_0_INST_IRQHandler` | `Drivers/board_isr.c` | 调用 `USART_IRQHandler()` 处理UART0 DMA收发 |
+| `UART_MAIXCAM_INST_IRQHandler` | `Drivers/board_isr.c` | 调用 `MaixCamSerial_IRQHandler()` |
 
-| API | 功能 |
-|-----|------|
-| `MPU6050_Init()` | 默认初始化 (±2g, ±250°/s) |
-| `MPU6050_CalibrateGyro(n)` | 静止校准陀螺仪零偏 |
-| `MPU6050_ReadAll(data)` | 读加速度(g)+角速度(°/s)+温度 |
-| `MPU6050_ReadAllCalibrated(data)` | 读数据并执行零偏扣除+死区+低通滤波 |
-| `MPU6050_SetFilter(alpha, gyroDz, accelDz)` | 设置低通滤波系数和死区 |
-
-当前在主循环中 `MPU6050_ReadAllCalibrated` 仅用于 `StageTurn145` 的IMU角度积分。
-
-### 3.6 超声波 (`ultrasonic/`)
-
-HC-SR04旧驱动，原设计Trig=PB19, Echo=PB17:
-- `Ultrasonic_Init()`: 配置GPIO
-- `Ultrasonic_GetDistance()`: 返回距离(cm)，超时返回0
-
-当前PB17已在SysConfig中配置为 `WDD35D4_ADC` 的ADC输入，`main.c` 不再调用
-`Ultrasonic_Init()`。如果恢复超声波，需要重新分配Echo引脚或取消WDD35D4 ADC占用。
-
-### 3.7 WDD35D4角位移传感器 (`wdd35d4/`)
-
-WDD35D4按模拟电位器型角度传感器使用，滑动端接 `PB17`，SysConfig实例名
-`WDD35D4_ADC`，外设为 `ADC1`，通道为 `DL_ADC12_INPUT_CHAN_4`。
-
-**主要API**:
-- `WDD35D4_Init()`: 在 `SYSCFG_DL_init()` 后调用，重置标定/滤波状态并使能ADC
-- `WDD35D4_SetCalibration(raw_min, raw_max)`: 设置有效ADC量程
-- `WDD35D4_GetCalibration(raw_min, raw_max)`: 读取当前ADC标定范围
-- `WDD35D4_CalibrateZero(sample_count)`: 自动采样当前ADC平均值作为竖直零点
-- `WDD35D4_SetZeroRaw(zero_raw)`: 设置竖直平衡点ADC零点
-- `WDD35D4_GetZeroRaw()`: 读取当前竖直零点ADC值
-- `WDD35D4_SetDirection(direction)`: 设置角度方向，`direction < 0` 时取反
-- `WDD35D4_GetDirection()`: 读取当前角度方向，返回 `1` 或 `-1`
-- `WDD35D4_ReadRaw(raw)`: 触发一次ADC转换并返回原始值
-- `WDD35D4_ReadFilteredRaw(alpha, filtered_raw)`: 原始值读取；`alpha=0` 时直通，`0<alpha<=1` 时一阶低通
-- `WDD35D4_ReadVoltage(voltage)`: 读取滑动端电压
-- `WDD35D4_ReadAngleDeg(angle_deg)`: 输出0到标定角度范围的单端角
-- `WDD35D4_ReadSignedAngleDeg(angle_deg)`: 输出相对竖直零点的有符号角，用于倒立摆控制
-- `WDD35D4_ReadData(data)`: 按默认滤波设置一次读取raw、电压、单端角、有符号角；当前默认不使用软件低通
-- `WDD35D4_RawToVoltage/AngleDeg/SignedAngleDeg()`: 原始ADC值换算辅助函数
-
-**零点校准流程**:
-启动时 `main.c` 在 `WDD35D4_Init()` 后调用 `WDD35D4_CalibrateZero(32)`，
-因此上电时应保持摆杆竖直。若ADC采样失败，则回退到默认零点 `1197`。
-
-### 3.8 OLED显示 (`OLED/`)
-
-SSD1306 I2C驱动，使用 `I2C1` (PB3=SDA, PA17=SCL):
-- `Display_Init()` + `Display_Clear()` + `Display_ShowString(row, col, str)`
-
-### 3.9 基础库 (`BasicMicroLib/`)
-
-- **delay**: `delay_us()`, `delay_ms()` — 循环延时
-- **getTime**: `getNowMs()`, `getTimeMs()` — SysTick扩展时间戳（防uint32回绕）
-- **usart**: `USART_Init()`, `USART_SendData()` — 串口
-- **PID**: `PID_calculate()` — 通用PID计算（位置式，当前较少使用）
-
-### 3.10 云台 (`Emm/`)
-
-串口控制舵机协议，使用 `UART1`:
-- `Emm_Init(addr)`: 使能指定地址舵机
-- `Emm_Loc_Control(addr, ctrl)`: 位置/速度控制
-- `Emm_Stop(addr)`: 停止
-
-当前初始化代码在 `main.c` 中被注释。
-
-## 4. 主循环执行时序
+### 4.3 主循环时序
 
 ```
 main()
-  ├── SYSCFG_DL_init() 初始化SysConfig外设
-  ├── WDD35D4_Init() → WDD35D4_CalibrateZero(32) 自动校准竖直零点
-  ├── 电机、IMU、OLED、串口等模块初始化
-  ├── 按键选择 commandList/Goal
-  └── 进入 while(1):
-       ├── 周期读取编码器增量 → NewMotorSpeedCtrl_UpdateByEncoderDelta() 更新速度闭环
-       ├── 周期读取WDD35D4角度并刷新显示
-       └── 每10ms读取 command[StageIndex] 执行阶段逻辑
-            ├── Grayscale_Line() → NewMotorSpeedCtrl_SetTargetRobot() (循迹前进)
-            ├── Grayscale_Cross() 判断路口触发阶段切换
-            ├── _read_channel_stable() 判断旋转到位
-            └── IMU_ReadAll() / MPU6050_ReadAllCalibrated() 用于姿态与转角控制
+  ├── SYSCFG_DL_init()
+  ├── MaixCamSerial_Init() / BluetoothSerial_Init()
+  ├── BoardIrq_Enable() / USART_Init()
+  ├── Display_Init() / TimeBase_Init()
+  ├── Emm_Init(1/2)
+  ├── MotorRuntime_Init()
+  ├── IMU_Init()
+  ├── ButtonSelect选择commandList与Goal
+  ├── StageRunner_Init(command, goal, stageConfig)
+  └── while (1)
+       ├── nowTime = getNowMs()
+       ├── USART_PollTx()
+       ├── MaixCamSerial_Poll()
+       ├── MotorRuntime_Update(nowTime, getNowUs())
+       └── StageRunner_Update(nowTime)
 ```
 
-## 5. 中断服务映射
+## 5. 主要模块说明
 
-| ISR | 触发源 | 功能 |
-|-----|--------|------|
-| `GROUP1_IRQHandler` | GPIOA/GPIOB双边沿 | 编码器AB相脉冲计数 + 按键计数 |
-| `UART_0_INST_IRQHandler` | UART0 RX | 蓝牙串口数据接收 |
-| `UART_MAIXCAM_INST_IRQHandler` | UART3 RX | MaixCAM视觉模块数据接收 |
+### 5.1 灰度传感器 (`GrayScale/`)
 
-## 6. 关键数据流
+- `Grayscale_Sensor_Read_All(bool[8])`: 读全部8通道
+- `_read_channel_stable(ch)`: 单通道稳定读取
+- `Grayscale_Line(pid, sensor_values)`: 返回循线转向修正
+- `Grayscale_Cross(sensor_values, status)`: 判断十字/直角；`status=0` 十字/丁字，`1` 右直角，`2` 左直角
 
-```
-灰度传感器(8ch) → grayscale[8] → Grayscale_Line() → 转向角速度(wz)
-                                                      ↓
-编码器脉冲 → motorLeftCount/RightCount → NewMotorSpeedCtrl_UpdateByEncoderDelta()
-                                              ↓
-目标速度(BaseSpeed) + 转向修正(wz) → SetTargetRobot() → 增量式PID → PWM输出
+### 5.2 IMU (`IMU/`)
 
-WDD35D4(PB17 ADC) → raw → 标定/零点/方向 → signed_angle_deg
-                                              ↓
-                                  StageStandUp倒立摆控制
-                                              ↓
-                                  小车前后目标速度 → 双轮速度闭环
-```
+上层阶段逻辑通过统一入口：
+- `IMU_Init()`
+- `IMU_ZeroYaw()`
+- `IMU_ReadAll(IMU_Data_t *)`
 
-## 7. 添加新功能指南
+当前 `StageTurn` 和 `StageForward` 使用 `IMUData.yaw` 做转角/直行修正。
 
-1. **新传感器驱动**: 在顶层新建独立文件夹（如 `NewSensor/`），配 `.h`+`.c`，在 `main.c` 中 include
-2. **新阶段**: 在 `Stage.h` 的 `enum Stage` 中添加枚举值，在 `main.c` 的 switch 中添加 case 分支
-3. **新命令序列**: 在 `Stage.h` 中定义新的 `commandN[]` 数组，加入 `commandList`
-4. **修改PID参数**: 在 `main.c` 全局变量区（`BaseSpeed`, `RoundSpeed`, `grayscalePid`）或 `newmotor_speed_ctrl.c` 初始化参数中
-5. **引脚变更**: 通过 CCS SysConfig 修改 `.syscfg` 文件，重新生成 `ti_msp_dl_config.c/h`
+### 5.3 通信 (`Communication/` + `BasicMicroLib/usart.c`)
 
-## 8. 注意事项
+- `BasicMicroLib/usart.c` 是UART0底层DMA收发与 `printf` 输出。UART0 RX 使用DMA块缓冲并在主循环轮询DMA进度，避免短帧必须等DMA块满。
+- `Communication/bluetooth_serial.c` 是UART0接收字节回调，保留原 `recv0` 缓冲语义；只有收到完整 `\r\n` 后才发布一帧，缓存内容不包含分隔符。
+- `Communication/maixcam_serial.c` 是MaixCam UART DMA接收缓冲；同样使用 `\r\n` 作为分隔，主循环必须调用 `MaixCamSerial_Poll()` 及时处理未填满DMA块的短帧。
+- SysConfig DMA通道分配如下：
 
-- `ti_msp_dl_config.c/h` 由 SysConfig 自动生成，**不应手动修改**
-- `empty.syscfg` 已配置 `WDD35D4_ADC`：`PB17` / `ADC1` / `channel 4`。不要同时把PB17用于超声波Echo。
-- `main.c` 当前已移除 `Ultrasonic_Init()` 调用；超声波源码保留但不是当前运行链路。
-- WDD35D4的 `ReadSignedAngleDeg()` 输出才适合倒立摆控制，普通 `ReadAngleDeg()` 是单端角。
-- `WDD35D4_DEFAULT_FILTER_ALPHA` 当前为 `0`，表示默认不启用软件低通滤波；如需抑制噪声，调用 `WDD35D4_ReadFilteredRaw(alpha, ...)` 并传入 `0<alpha<=1`。
-- `StageStandUp` 当前分支读取 `WDD35D4_ReadData()` 的 `signed_angle_deg`，即相对竖直零点的有符号角。
-- 编码器计数在 ISR 中累加，主循环原子读取后清零（临界区用 `__disable_irq()`/`__enable_irq()` 保护）
-- 当前 `StartTime`/`nowTime` 为全局变量，`TimeBase_Init()` 初始化 SysTick
-- 四个命令序列 `command0~3` 按按键 `TextIndex` 选择，`TextIndex=3` 时额外选 Goal 终点路线
+| DMA Channel | 外设 | 方向 | 用途 |
+|-------------|------|------|------|
+| `DMA_CH0` | `UART0: UART_0` | TX | UART0/蓝牙发送、`printf` 输出 |
+| `DMA_CH1` | `UART0: UART_0` | RX | UART0/蓝牙接收 |
+| `DMA_CH2` | `UART3: UART_MAIXCAM` | RX | MaixCam接收 |
+| `DMA_CH3` | 未配置 | - | 预留 |
+
+SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧 `UART0/UART3` 是UART外设实例号；UART0 同时启用TX DMA和RX DMA，所以会占用两个DMA channel。`UART3` 不是 `DMA_CH3`，它只是MaixCam所用的UART外设编号。
+
+### 5.4 WDD35D4与超声波
+
+- `wdd35d4/` 驱动保留，`empty.syscfg` 中仍有 `WDD35D4_ADC`：`PB17` / `ADC1` / `channel 4`。
+- 当前 `main.c` 和 `StageRunner` 不初始化、不读取 WDD35D4。
+- `ultrasonic/` 是旧HC-SR04驱动；PB17已被WDD35D4 ADC占用，不要同时作为超声波Echo使用。
+
+## 6. 开发注意事项
+
+- `ti_msp_dl_config.c/h` 由 SysConfig 自动生成，不应手动修改。
+- `Debug/*.mk` 是 CCS managed build 自动生成文件，不作为源码维护；新增 `.c` 文件后通过 CCS Build 重新生成。
+- 新模块必须放在对应文件夹中，避免继续把业务逻辑堆回 `main.c`。
+- 头文件 include 优先使用项目根路径形式，例如 `Stage/Stage.h`、`Motor/motor_runtime.h`。
+- 保留历史注释和实验代码；若注释过期，优先修正说明，不直接删除。

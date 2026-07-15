@@ -4,9 +4,15 @@
 #include <stdio.h>
 
 #define USART_TX_BUFFER_SIZE 1024U
-#define USART_DMA_TX_CHAN_ID 0U
-#define USART_DMA_RX_CHAN_ID 1U
-#define USART_DMA_RX_BLOCK_SIZE 1U
+#ifndef DMA_UART0_TX_CHAN_ID
+#define DMA_UART0_TX_CHAN_ID 0U
+#endif
+#ifndef DMA_UART0_RX_CHAN_ID
+#define DMA_UART0_RX_CHAN_ID 1U
+#endif
+#define USART_DMA_TX_CHAN_ID DMA_UART0_TX_CHAN_ID
+#define USART_DMA_RX_CHAN_ID DMA_UART0_RX_CHAN_ID
+#define USART_DMA_RX_BLOCK_SIZE 64U
 #define USART_RX_FIFO_DRAIN_LIMIT 32U
 
 static volatile uint8_t usartTxBuffer[USART_TX_BUFFER_SIZE];
@@ -16,7 +22,8 @@ static volatile uint32_t usartTxDropped = 0;
 static volatile bool usartTxDmaBusy = false;
 static volatile uint16_t usartTxDmaLen = 0;
 
-static volatile uint8_t usartRxDmaByte = 0;
+static volatile uint8_t usartRxDmaBlock[USART_DMA_RX_BLOCK_SIZE];
+static volatile uint16_t usartRxDmaProcessed = 0;
 static volatile uint32_t usartRxDropped = 0;
 static USART_RxByteCallback usartRxCallback = NULL;
 
@@ -39,40 +46,6 @@ static void USART_SendByte_Blocking(UART_Regs *uart, uint8_t data)
 	DL_UART_Main_transmitData(uart, data);
 }
 
-static void USART_ConfigTxDmaChannel(void)
-{
-	const DL_DMA_Config config = {
-		.transferMode = DL_DMA_SINGLE_TRANSFER_MODE,
-		.extendedMode = DL_DMA_NORMAL_MODE,
-		.destIncrement = DL_DMA_ADDR_UNCHANGED,
-		.srcIncrement = DL_DMA_ADDR_INCREMENT,
-		.destWidth = DL_DMA_WIDTH_BYTE,
-		.srcWidth = DL_DMA_WIDTH_BYTE,
-		.trigger = DMA_UART0_TX_TRIG,
-		.triggerType = DL_DMA_TRIGGER_TYPE_EXTERNAL,
-	};
-
-	DL_DMA_disableChannel(DMA, USART_DMA_TX_CHAN_ID);
-	DL_DMA_initChannel(DMA, USART_DMA_TX_CHAN_ID, &config);
-}
-
-static void USART_ConfigRxDmaChannel(void)
-{
-	const DL_DMA_Config config = {
-		.transferMode = DL_DMA_SINGLE_TRANSFER_MODE,
-		.extendedMode = DL_DMA_NORMAL_MODE,
-		.destIncrement = DL_DMA_ADDR_UNCHANGED,
-		.srcIncrement = DL_DMA_ADDR_UNCHANGED,
-		.destWidth = DL_DMA_WIDTH_BYTE,
-		.srcWidth = DL_DMA_WIDTH_BYTE,
-		.trigger = DMA_UART0_RX_TRIG,
-		.triggerType = DL_DMA_TRIGGER_TYPE_EXTERNAL,
-	};
-
-	DL_DMA_disableChannel(DMA, USART_DMA_RX_CHAN_ID);
-	DL_DMA_initChannel(DMA, USART_DMA_RX_CHAN_ID, &config);
-}
-
 static void USART_FlushRxFifo(void)
 {
 	uint32_t drained = 0;
@@ -87,12 +60,16 @@ static void USART_FlushRxFifo(void)
 static void USART_StartRxDma(void)
 {
 	DL_DMA_disableChannel(DMA, USART_DMA_RX_CHAN_ID);
+	usartRxDmaProcessed = 0;
 	DL_DMA_setSrcAddr(DMA, USART_DMA_RX_CHAN_ID,
 					  (uint32_t)&UART_0_INST->RXDATA);
 	DL_DMA_setDestAddr(DMA, USART_DMA_RX_CHAN_ID,
-					   (uint32_t)&usartRxDmaByte);
+					   (uint32_t)&usartRxDmaBlock[0]);
 	DL_DMA_setTransferSize(DMA, USART_DMA_RX_CHAN_ID,
 						   USART_DMA_RX_BLOCK_SIZE);
+	DL_UART_Main_clearInterruptStatus(UART_0_INST,
+									  DL_UART_MAIN_INTERRUPT_DMA_DONE_RX |
+										  DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR);
 	DL_DMA_enableChannel(DMA, USART_DMA_RX_CHAN_ID);
 }
 
@@ -105,6 +82,43 @@ static void USART_HandleRxByte(uint8_t data)
 	} else {
 		usartRxDropped++;
 	}
+}
+
+static uint16_t USART_GetRxDmaReceived(void)
+{
+	uint16_t remaining = DL_DMA_getTransferSize(DMA, USART_DMA_RX_CHAN_ID);
+
+	if (remaining > USART_DMA_RX_BLOCK_SIZE) {
+		remaining = 0;
+	}
+	return (uint16_t)(USART_DMA_RX_BLOCK_SIZE - remaining);
+}
+
+static void USART_ProcessRxDmaAvailable(bool restartWhenFull)
+{
+	uint16_t received = USART_GetRxDmaReceived();
+
+	if (received > USART_DMA_RX_BLOCK_SIZE) {
+		received = USART_DMA_RX_BLOCK_SIZE;
+	}
+
+	while (usartRxDmaProcessed < received) {
+		USART_HandleRxByte((uint8_t)usartRxDmaBlock[usartRxDmaProcessed]);
+		usartRxDmaProcessed++;
+	}
+
+	if (restartWhenFull && (received >= USART_DMA_RX_BLOCK_SIZE)) {
+		USART_StartRxDma();
+	}
+}
+
+static void USART_PollRxDma(void)
+{
+	uint32_t primask = __get_PRIMASK();
+
+	__disable_irq();
+	USART_ProcessRxDmaAvailable(true);
+	USART_RestoreIrq(primask);
 }
 
 static void USART_DrainRxFifoToCallback(void)
@@ -209,18 +223,15 @@ void USART_Init(void)
 	usartTxDmaBusy = false;
 	usartTxDmaLen = 0;
 	usartRxDropped = 0;
-	usartRxDmaByte = 0;
+	usartRxDmaProcessed = 0;
 
-	USART_ConfigTxDmaChannel();
-	USART_ConfigRxDmaChannel();
-
-	// SysConfig 已完成 UART0 基础参数配置，这里只切换到 DMA 收发模式。
-	DL_UART_Main_changeConfig(UART_0_INST);
+	// SysConfig 已完成 UART0/DMA 通道配置，这里只设置运行期缓冲。
 	DL_UART_Main_enableFIFOs(UART_0_INST);
 	DL_UART_Main_setTXFIFOThreshold(UART_0_INST,
 									DL_UART_MAIN_TX_FIFO_LEVEL_ONE_ENTRY);
 	DL_UART_Main_setRXFIFOThreshold(UART_0_INST,
 									DL_UART_MAIN_RX_FIFO_LEVEL_ONE_ENTRY);
+	DL_UART_Main_setRXInterruptTimeout(UART_0_INST, 15);
 	DL_UART_Main_disableInterrupt(UART_0_INST, DL_UART_MAIN_INTERRUPT_RX);
 	DL_UART_Main_enableDMAReceiveEvent(UART_0_INST,
 									   DL_UART_MAIN_DMA_INTERRUPT_RX);
@@ -229,6 +240,7 @@ void USART_Init(void)
 								 DL_UART_MAIN_INTERRUPT_DMA_DONE_RX |
 									 DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
 									 DL_UART_MAIN_INTERRUPT_EOT_DONE |
+									 DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
 									 DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
 									 DL_UART_MAIN_INTERRUPT_FRAMING_ERROR);
 	DL_UART_Main_clearInterruptStatus(UART_0_INST,
@@ -236,6 +248,7 @@ void USART_Init(void)
 										  DL_UART_MAIN_INTERRUPT_DMA_DONE_RX |
 										  DL_UART_MAIN_INTERRUPT_DMA_DONE_TX |
 										  DL_UART_MAIN_INTERRUPT_EOT_DONE |
+										  DL_UART_MAIN_INTERRUPT_RX_TIMEOUT_ERROR |
 										  DL_UART_MAIN_INTERRUPT_OVERRUN_ERROR |
 										  DL_UART_MAIN_INTERRUPT_FRAMING_ERROR);
 	USART_FlushRxFifo();
@@ -281,6 +294,7 @@ void USART_WriteAsync(const char *str)
 
 void USART_PollTx(void)
 {
+	USART_PollRxDma();
 	USART_KickTxDma();
 }
 
@@ -292,13 +306,15 @@ void USART_IRQHandler(void)
 		pending = DL_UART_Main_getPendingInterrupt(UART_0_INST);
 		switch (pending) {
 		case DL_UART_MAIN_IIDX_DMA_DONE_RX:
-			USART_HandleRxByte((uint8_t)usartRxDmaByte);
-			USART_StartRxDma();
+			USART_ProcessRxDmaAvailable(true);
 			break;
 		case DL_UART_MAIN_IIDX_DMA_DONE_TX:
 			USART_OnTxDmaDone();
 			break;
 		case DL_UART_MAIN_IIDX_EOT_DONE:
+			break;
+		case DL_UART_MAIN_IIDX_RX_TIMEOUT_ERROR:
+			USART_ProcessRxDmaAvailable(false);
 			break;
 		case DL_UART_MAIN_IIDX_RX:
 			USART_DrainRxFifoToCallback();

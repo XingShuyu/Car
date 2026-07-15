@@ -1,49 +1,14 @@
-#ifndef STAGE_H
-#define STAGE_H
-
-#include <stddef.h>
-
-typedef enum Stage {
-	StageEnd = 0,
-	StageRush = 1,
-	StageRight = 2,
-	StageRightRound = 3,
-	StageLeft = 4,
-	StageLeftRound = 5,
-	StageCross = 6,
-	Stageultrasonic = 7,
-	StageStartJudge = 8,
-	StageFinsih = 9,
-	StageBizz = 10,
-	StageFake = 11,
-	StageStop = 12,
-	StageTurn = 13,
-	StageSkip = 14,
-	StageStandUp = 15,
-	StageForward = 16
-} Stage;
-
-typedef struct StageCommand {
-	Stage type;
-	const void *data;
-	float numData;
-} StageCommand;
-
-typedef struct StageForwardData {
-	float length;
-	int32_t speed;
-} StageForwardData;
-
-#define STAGE_CMD(stage_type) {(stage_type), NULL, 0.0}
-#define STAGE_CMD_DATA(stage_type, data_ptr) {(stage_type), (data_ptr), 0.0}
-#define STAGE_CMD_NUM(stage_type, num_data) {(stage_type), NULL, (num_data)}
+#include "Stage/Stage.h"
 
 static const StageCommand command0[] = {
+	STAGE_CMD_NUM(StageMaixCamCommand, 1),
 	STAGE_CMD_NUM(StageForward, 980),
 	STAGE_CMD_NUM(StageTurn, -90.0),
 	STAGE_CMD_NUM(StageForward, 570),
 	STAGE_CMD_NUM(StageTurn, -90.0),
+	STAGE_CMD_NUM(StageMaixCamCommand, 1),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
+	STAGE_CMD_NUM(StageMaixCamCommand, 1),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
@@ -118,11 +83,9 @@ static const StageCommand command3[] = {
 	STAGE_CMD(StageEnd),
 };
 
-static const StageCommand *const commandList[] = {
+const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT] = {
 	command0,
 	command1,
 	command2,
 	command3,
 };
-
-#endif
