@@ -444,13 +444,13 @@ void JY901S_ConvertRaw(const JY901S_RawData_t *raw, JY901S_Data_t *out)
     out->az = (float)raw->az * JY901S_RAW_ACCEL_TO_G;
     out->gx = -((float)raw->gx * JY901S_RAW_GYRO_TO_DPS);
     out->gy = (float)raw->gy * JY901S_RAW_GYRO_TO_DPS;
-    out->gz = (float)raw->gz * JY901S_RAW_GYRO_TO_DPS;
+    out->gz = -((float)raw->gz * JY901S_RAW_GYRO_TO_DPS);
     out->hx = (float)raw->hx;
     out->hy = (float)raw->hy;
     out->hz = (float)raw->hz;
     out->roll = (float)raw->roll * JY901S_RAW_ANGLE_TO_DEG;
     out->pitch = (float)raw->pitch * JY901S_RAW_ANGLE_TO_DEG;
-    out->yaw = (float)raw->yaw * JY901S_RAW_ANGLE_TO_DEG;
+    out->yaw = -((float)raw->yaw * JY901S_RAW_ANGLE_TO_DEG);
     out->temp = (float)raw->temp * JY901S_RAW_TEMP_TO_DEGC;
 }
 

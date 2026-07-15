@@ -26,7 +26,7 @@
 // 循迹pid
 PID grayscalePid = {0.1f, 0.0f, 0.0f, 100000.0, 0, 10};
 
-// 基础速度 
+// 基础速度
 int BaseSpeed = 300;
 int RoundSpeed = 150;
 // l1 l2距离
@@ -106,9 +106,9 @@ int main(void) {
 	DL_TimerG_startCounter(MotorLeft_INST);
 	DL_TimerG_startCounter(MotorRight_INST);
 	NewMotorSpeedCtrl_Init(&motor, 0.001f);
-	NewMotorSpeedCtrl_SetPid(&motor, 1.0,30.0, 0.0);
+	NewMotorSpeedCtrl_SetPid(&motor, 3.0, 0.6, 0.002);
 	NewMotorSpeedCtrl_SetOutputLimit(&motor, -2000, 2000);
-	//NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
+	// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, BaseSpeed, BaseSpeed);
 	printf("OK");
 
 #if MOTOR_STEP_TEST_ENABLE
@@ -168,7 +168,7 @@ int main(void) {
 		USART_PollTx();
 		// 每30ms获取电机运行圈数
 		uint32_t nowUs = getNowUs();
-		if (getTimeUs(nowUs, lastMotorSpeedTime) > 30000) {
+		if (getTimeUs(nowUs, lastMotorSpeedTime) > 10000) {
 			int32_t leftCountSnapshot;
 			int32_t rightCountSnapshot;
 			motor.sample_period_s =
@@ -189,17 +189,19 @@ int main(void) {
 				(int)(NewMotor_EncoderDeltaToDistanceMm(leftCountSnapshot) /
 					  motor.sample_period_s);
 			printf("Back:%d\n", sped);
+			sped = (int)(NewMotor_EncoderDeltaToDistanceMm(rightCountSnapshot) /
+						 motor.sample_period_s);
+			printf("Back2:%d\n", sped);
 			if (getTimeMs(nowTime, lastUartTime) >=
 				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
 				lastUartTime = nowTime;
-				
 			}
 
 			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
 												   rightCountSnapshot);
 		}
 
-		if (getTimeMs(nowTime, lastStageTime) > 5) {
+		if (getTimeMs(nowTime, lastStageTime) > 10) {
 			const StageCommand *stageCommand = &command[StageIndex];
 			Stage stage = stageCommand->type;
 			const void *stageData = stageCommand->data;
@@ -239,7 +241,6 @@ int main(void) {
 						0.8 * speedP * BaseSpeed);
 				}
 				if (StageFlag <= 10 && StageFlag >= 2) {
-
 
 					StageFlag++;
 				}
@@ -449,16 +450,14 @@ int main(void) {
 				// 	StageFlag++;
 				// }
 
-				
 				// grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 				// Grayscale_Line(&grayscalePid, grayscale);
-				// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 * -BaseSpeed,
-				// 									 0.5 * -BaseSpeed);
-				// if (grayscale[0] == 0 && grayscale[1] == 0 &&
-				// 	grayscale[2] == 0 && grayscale[3] == 0 &&
-				// 	grayscale[4] == 0 && grayscale[5] == 0 &&
-				// 	grayscale[6] == 0 && grayscale[7] == 0 && StageFlag == 0) {
-				// 	StageFlag++;
+				// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0.5 *
+				// -BaseSpeed, 									 0.5 *
+				// -BaseSpeed); if (grayscale[0] == 0 && grayscale[1] == 0 &&
+				// grayscale[2] == 0 && grayscale[3] == 0
+				// && 	grayscale[4] == 0 && grayscale[5] == 0 && 	grayscale[6]
+				// == 0 && grayscale[7] == 0 && StageFlag == 0) { 	StageFlag++;
 				// }
 				// if (!(grayscale[0] == 0 && grayscale[1] == 0 &&
 				// 	  grayscale[2] == 0 && grayscale[3] == 0 &&
@@ -471,36 +470,42 @@ int main(void) {
 				// 	StageFlag = 0;
 				// 	shouldStopRun = true;
 				// }
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-				NewMotor_Stop(NEWMOTOR_STOP_COAST);
+				// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
+				// NewMotor_Stop(NEWMOTOR_STOP_COAST);
 				break;
 			}
 			case StageTurn: {
 				static int isRight = -1;
 				if (StageFlag == 0) {
-					if (numData<0.0) {
+					if (numData < 0.0) {
 						isRight = 1;
-					}
-					else {
+					} else {
 						isRight = -1;
 					}
 					IMUData.yaw = 0.0;
 					IMU_ZeroYaw();
 					StageFlag++;
 				}
-				NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, -isRight*(RoundSpeed),
-													 isRight*(RoundSpeed));
+				NewMotorSpeedCtrl_SetTargetWheelMmps(
+					&motor, -isRight * (RoundSpeed), isRight * (RoundSpeed));
 				(void)IMU_ReadAll(&IMUData);
-				if (IMUData.yaw > (float)(numData-0.5) && IMUData.yaw < (float)(numData+0.5)) {
+				if (IMUData.yaw > (float)(numData - 0.5) &&
+					IMUData.yaw < (float)(numData + 0.5)) {
+
 					NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 					NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 					StageFlag = 0;
 					lastStageTime = nowTime;
 					StageIndex++;
 				} else {
-					float error = (-IMUData.yaw + numData) / numData + 0.1;
+					float error =
+						fminf((-IMUData.yaw + numData) / numData + 0.2, 1.0);
+					char temp[21];
+					sprintf(temp, "angel:%.2f", IMUData.yaw);
+					Display_ShowString(3, 0, temp);
 					NewMotorSpeedCtrl_SetTargetWheelMmps(
-						&motor, -isRight*(error * RoundSpeed), isRight*(error * RoundSpeed));
+						&motor, -isRight * (error * RoundSpeed),
+						isRight * (error * RoundSpeed));
 				}
 				break;
 			}
@@ -520,31 +525,46 @@ int main(void) {
 					if (stageData == NULL) {
 						stageSpeed = BaseSpeed;
 						stageDistence = numData;
+					} else {
+						stageSpeed =
+							((const StageForwardData *)stageData)->speed;
+						stageDistence =
+							((const StageForwardData *)stageData)->length;
 					}
-					else {
-						stageSpeed = ((const StageForwardData*)stageData)->speed;
-						stageDistence = ((const StageForwardData*)stageData)->length;
-					}
-					NewMotorSpeedCtrl_Reset(&motor);
+					// NewMotorSpeedCtrl_Reset(&motor);
 					StageFlag++;
-				}
-				else {
-					avgDistance = 0.5*(NewMotor_EncoderDeltaToDistanceMm(leftDistance)+NewMotor_EncoderDeltaToDistanceMm(rightDistance));
-					if (fabs(stageDistence-avgDistance)<5.0) {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0,0);
+				} else {
+					avgDistance =
+						0.5 *
+						(NewMotor_EncoderDeltaToDistanceMm(leftDistance) +
+						 NewMotor_EncoderDeltaToDistanceMm(rightDistance));
+					if (fabs(stageDistence - avgDistance) < stageSpeed / 50.0) {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
 						NewMotor_Stop(NEWMOTOR_STOP_BRAKE);
 						StageFlag = 0;
 						StageIndex++;
-					}
-					else if (fabs(stageDistence-avgDistance)<70.0) {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, (stageDistence-avgDistance)/70.0*stageSpeed, (stageDistence-avgDistance)/70.0*stageSpeed);
-					}
-					else {
-						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, stageSpeed, stageSpeed);
+					} else if (fabs(stageDistence - avgDistance) <
+							   stageSpeed / 4.0) {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(
+							&motor,
+							fminf(fabs(stageDistence - leftDistance) /
+										  (stageSpeed / 4.0) +
+									  0.2,
+								  1.0) *
+								stageSpeed,
+							fminf(fabs(stageDistence - leftDistance) /
+										  (stageSpeed / 4.0) +
+									  0.2,
+								  1.0) *
+								stageSpeed);
+					} else {
+						NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, stageSpeed,
+															 stageSpeed);
 					}
 					char temp[21];
-						sprintf(temp, "len:%.2f",fabs(stageDistence-avgDistance));
-						//Display_ShowString(2, 0, temp);
+					sprintf(temp, "len:%.2f",
+							fabs(stageDistence - avgDistance));
+					Display_ShowString(2, 0, temp);
 				}
 			}
 			default:
@@ -555,7 +575,6 @@ int main(void) {
 				break;
 			}
 		}
-
 	}
 }
 
@@ -615,8 +634,7 @@ static void MotorClosedLoopStepTest(void) {
 	Display_ShowString(0, 0, "Motor Step Test");
 	{
 		char oledLine[22];
-		snprintf(oledLine, sizeof(oledLine), "Target:%d mm/s",
-				 (int)targetMmps);
+		snprintf(oledLine, sizeof(oledLine), "Target:%d mm/s", (int)targetMmps);
 		Display_ShowString(2, 0, oledLine);
 	}
 	Display_ShowString(4, 0, "Measuring...");
@@ -674,8 +692,8 @@ static void MotorClosedLoopStepTest(void) {
 				firstMoveTimeUs = nowUs;
 			}
 
-			NewMotorSpeedCtrl_UpdateByEncoderDelta(
-				&motor, leftCountSnapshot, rightCountSnapshot);
+			NewMotorSpeedCtrl_UpdateByEncoderDelta(&motor, leftCountSnapshot,
+												   rightCountSnapshot);
 			NewMotorSpeedCtrl_GetMeasuredWheelMmps(&motor, &leftMmps,
 												   &rightMmps);
 			NewMotorSpeedCtrl_GetOutputPwmTicks(&motor, &leftPwm, &rightPwm);
@@ -730,12 +748,12 @@ static void MotorClosedLoopStepTest(void) {
 			if (getTimeMs(nowMs, lastLogMs) >=
 				MOTOR_STEP_TEST_LOG_INTERVAL_MS) {
 				lastLogMs = nowMs;
-				printf("Step t=%lu ms L=%d R=%d Avg=%d WinAvg=%d PWM=%d,%d Cnt=%ld,%ld dt=%lu us\n",
+				printf("Step t=%lu ms L=%d R=%d Avg=%d WinAvg=%d PWM=%d,%d "
+					   "Cnt=%ld,%ld dt=%lu us\n",
 					   (unsigned long)(getTimeUs(nowUs, commandTimeUs) / 1000U),
 					   (int)leftMmps, (int)rightMmps, (int)avgMmps,
 					   (int)lastWindowAvgMmps, leftPwm, rightPwm,
-					   (long)leftCountSnapshot,
-					   (long)rightCountSnapshot,
+					   (long)leftCountSnapshot, (long)rightCountSnapshot,
 					   (unsigned long)lastActualPeriodUs);
 			}
 		}
@@ -748,8 +766,7 @@ static void MotorClosedLoopStepTest(void) {
 		uint32_t commandToTargetMs =
 			getTimeUs(reachedTimeUs, commandTimeUs) / 1000U;
 		uint32_t motorStartToTargetMs =
-			firstMoveSeen ? (getTimeUs(reachedTimeUs, firstMoveTimeUs) /
-							 1000U)
+			firstMoveSeen ? (getTimeUs(reachedTimeUs, firstMoveTimeUs) / 1000U)
 						  : 0U;
 		char oledLine[22];
 
@@ -779,12 +796,11 @@ static void MotorClosedLoopStepTest(void) {
 			NewMotor_EncoderDeltaToDistanceMm(1) /
 			((float)MOTOR_STEP_TEST_MEASURE_WINDOW_US / 1000000.0f);
 
-
 		Display_Clear();
 		Display_ShowString(0, 0, "Step Test Done");
 		Display_ShowString(2, 0, "Timeout");
-		snprintf(oledLine, sizeof(oledLine), "T:%d A:%d",
-				 (int)targetMmps, (int)lastWindowAvgMmps);
+		snprintf(oledLine, sizeof(oledLine), "T:%d A:%d", (int)targetMmps,
+				 (int)lastWindowAvgMmps);
 		Display_ShowString(4, 0, oledLine);
 		snprintf(oledLine, sizeof(oledLine), "PWM:%d,%d", lastLeftPwm,
 				 lastRightPwm);
@@ -793,25 +809,28 @@ static void MotorClosedLoopStepTest(void) {
 				 pwmSaturated ? "Hit 2000" : "No limit");
 		Display_ShowString(7, 0, oledLine);
 
-		printf("Step Timeout target=%d elapsed=%lu ms updates=%lu last_dt=%lu us\n",
+		printf("Step Timeout target=%d elapsed=%lu ms updates=%lu last_dt=%lu "
+			   "us\n",
 			   (int)targetMmps, (unsigned long)elapsedMs,
 			   (unsigned long)updateCount, (unsigned long)lastActualPeriodUs);
-		printf("Step Final instant_left=%d instant_right=%d instant_avg=%d window_left=%d window_right=%d window_avg=%d pwm=%d,%d last_cnt=%ld,%ld total_cnt=%ld,%ld\n",
-			   (int)lastLeftMmps, (int)lastRightMmps,
-			   (int)lastAvgMmps, (int)lastWindowLeftMmps,
-			   (int)lastWindowRightMmps, (int)lastWindowAvgMmps,
-			   lastLeftPwm, lastRightPwm,
-			   (long)lastLeftCount, (long)lastRightCount,
-			   (long)leftDistance, (long)rightDistance);
+		printf("Step Final instant_left=%d instant_right=%d instant_avg=%d "
+			   "window_left=%d window_right=%d window_avg=%d pwm=%d,%d "
+			   "last_cnt=%ld,%ld total_cnt=%ld,%ld\n",
+			   (int)lastLeftMmps, (int)lastRightMmps, (int)lastAvgMmps,
+			   (int)lastWindowLeftMmps, (int)lastWindowRightMmps,
+			   (int)lastWindowAvgMmps, lastLeftPwm, lastRightPwm,
+			   (long)lastLeftCount, (long)lastRightCount, (long)leftDistance,
+			   (long)rightDistance);
 		printf("Step PWM saturated=%s threshold=%d\n",
-			   pwmSaturated ? "yes" : "no",
-			   MOTOR_STEP_TEST_PWM_SAT_TICKS);
-		printf("Step Resolution control_period=%lu us one_count=%d mm/s measure_window=%lu us window_one_count=%d mm/s dropped_tx=%lu\n",
-			   (unsigned long)MOTOR_STEP_TEST_CONTROL_PERIOD_US,
-			   (int)(oneCountMmps + 0.5f),
-			   (unsigned long)MOTOR_STEP_TEST_MEASURE_WINDOW_US,
-			   (int)(oneCountWindowMmps + 0.5f),
-			   (unsigned long)USART_GetDroppedTxBytes());
+			   pwmSaturated ? "yes" : "no", MOTOR_STEP_TEST_PWM_SAT_TICKS);
+		printf(
+			"Step Resolution control_period=%lu us one_count=%d mm/s "
+			"measure_window=%lu us window_one_count=%d mm/s dropped_tx=%lu\n",
+			(unsigned long)MOTOR_STEP_TEST_CONTROL_PERIOD_US,
+			(int)(oneCountMmps + 0.5f),
+			(unsigned long)MOTOR_STEP_TEST_MEASURE_WINDOW_US,
+			(int)(oneCountWindowMmps + 0.5f),
+			(unsigned long)USART_GetDroppedTxBytes());
 	}
 
 	while (1) {
@@ -866,9 +885,7 @@ void GROUP1_IRQHandler(void) {
 }
 
 // 串口的中断服务函数
-void UART_0_INST_IRQHandler(void) {
-	USART_IRQHandler();
-}
+void UART_0_INST_IRQHandler(void) { USART_IRQHandler(); }
 
 static void BluetoothSerial_OnRxByte(uint8_t receivedData) {
 	// DMA 每收到 1 字节回调一次，保持原 UART0 接收缓冲语义。
