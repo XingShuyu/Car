@@ -36,9 +36,16 @@ typedef struct StageForwardData {
 	int32_t speed;
 } StageForwardData;
 
+typedef struct StageMaixCamCommandData {
+	const uint8_t *bytes;
+	uint16_t length;
+} StageMaixCamCommandData;
+
 #define STAGE_CMD(stage_type) {(stage_type), NULL, 0.0}
 #define STAGE_CMD_DATA(stage_type, data_ptr) {(stage_type), (data_ptr), 0.0}
 #define STAGE_CMD_NUM(stage_type, num_data) {(stage_type), NULL, (num_data)}
+#define STAGE_CMD_MAIXCAM(data_ptr, data_len) \
+	{StageMaixCamCommand, (&(StageMaixCamCommandData){(data_ptr), (data_len)}), 0.0}
 
 #define STAGE_COMMAND_LIST_COUNT 4U
 

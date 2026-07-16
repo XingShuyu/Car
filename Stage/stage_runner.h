@@ -13,7 +13,6 @@ typedef struct StageRunner_Config {
 
 void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config);
-static void StageRunner_SendMaixCamStageNotify(uint8_t GimbalStage);
 bool StageRunner_Update(uint32_t nowTime);
 int StageRunner_GetStageIndex(void);
 int StageRunner_GetStageFlag(void);

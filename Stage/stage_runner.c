@@ -72,16 +72,15 @@ static void StageRunner_SendMaixCamWaitNotify(void)
 	}
 }
 
-static void StageRunner_SendMaixCamStageNotify(uint8_t GimbalStage)
+static void StageRunner_SendMaixCamStageNotify(const uint8_t *data,
+											   uint16_t dataLength)
 {
 	uint8_t notify[STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE];
 	uint16_t notifyLength;
 
 	if (MaixCamProtocol_BuildFrame(
 			notify, sizeof(notify), MAIXCAM_PROTOCOL_ADDR_CAR,
-			MaixCamProtocolType_Stage,
-			&GimbalStage,
-			(uint16_t)(sizeof(GimbalStage)),
+			MaixCamProtocolType_Stage, data, dataLength,
 			&notifyLength)) {
 		MaixCamSerial_SendBytes(notify, notifyLength);
 	}
@@ -557,12 +556,18 @@ bool StageRunner_Update(uint32_t nowTime)
 		uint8_t frame[STAGE_RUNNER_MAIXCAM_FRAME_SIZE];
 		uint16_t frameLength;
 		StageRunner_MaixCamResult maixResult;
+		const StageMaixCamCommandData *maixData =
+			(const StageMaixCamCommandData *)stageData;
 
 		if (StageFlag == 0) {
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			MaixCamPendingStage = -1;
-			StageRunner_SendMaixCamStageNotify(numData);
+			//获取数据数组
+			if (maixData != NULL) {
+				StageRunner_SendMaixCamStageNotify(maixData->bytes,
+												   maixData->length);
+			}
 			Display_ShowString(0, 0, "Wait Maix");
 			StageFlag = 1;
 		}
