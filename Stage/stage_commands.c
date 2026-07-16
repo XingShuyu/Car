@@ -1,11 +1,13 @@
 #include "Stage/Stage.h"
 
 static const StageCommand command0[] = {
+	
+	STAGE_CMD_NUM(StageForward, 500),
+	STAGE_CMD_NUM(StageTurn, 90.0),
+	STAGE_CMD_NUM(StageForward, 400),
 	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x01U, 0x01U}), 2U),
-	STAGE_CMD_NUM(StageForward, 980),
 	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_NUM(StageForward, 570),
-	STAGE_CMD_NUM(StageTurn, -90.0),
+	STAGE_CMD_NUM(StageForward, 480),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
 	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
