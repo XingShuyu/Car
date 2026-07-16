@@ -50,15 +50,14 @@ static int StageFlag = 0;
 static IMU_Data_t IMUData;
 
 // 灰度循迹地址
-static bool grayscale[8];
+static bool grayscale[GRAYSCALE_SENSOR_CHANNELS];
 
 static const StageCommand *command = NULL;
 static int BaseSpeed = STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS;
 static int RoundSpeed = STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS;
 static int MaixCamPendingStage = -1;
 
-static void StageRunner_SendMaixCamWaitNotify(void)
-{
+static void StageRunner_SendMaixCamWaitNotify(void) {
 	uint8_t notify[STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE];
 	uint16_t notifyLength;
 
@@ -73,22 +72,19 @@ static void StageRunner_SendMaixCamWaitNotify(void)
 }
 
 static void StageRunner_SendMaixCamStageNotify(const uint8_t *data,
-											   uint16_t dataLength)
-{
+											   uint16_t dataLength) {
 	uint8_t notify[STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE];
 	uint16_t notifyLength;
 
 	if (MaixCamProtocol_BuildFrame(
 			notify, sizeof(notify), MAIXCAM_PROTOCOL_ADDR_CAR,
-			MaixCamProtocolType_Stage, data, dataLength,
-			&notifyLength)) {
+			MaixCamProtocolType_Stage, data, dataLength, &notifyLength)) {
 		MaixCamSerial_SendBytes(notify, notifyLength);
 	}
 }
 
 static void StageRunner_CopyText(char *dest, uint16_t destSize,
-								 const uint8_t *src, uint16_t srcLength)
-{
+								 const uint8_t *src, uint16_t srcLength) {
 	uint16_t copyLength;
 	uint16_t i;
 
@@ -107,10 +103,9 @@ static void StageRunner_CopyText(char *dest, uint16_t destSize,
 	dest[copyLength] = '\0';
 }
 
-static StageRunner_MaixCamResult StageRunner_ExecuteMaixCamFrame(uint8_t *frame,
-																 uint16_t length,
-																 uint32_t nowTime)
-{
+static StageRunner_MaixCamResult
+StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
+								uint32_t nowTime) {
 	MaixCamProtocol_Frame packet;
 
 	(void)nowTime;
@@ -149,8 +144,8 @@ static StageRunner_MaixCamResult StageRunner_ExecuteMaixCamFrame(uint8_t *frame,
 		uint16_t textLength;
 		char displayText[STAGE_RUNNER_OLED_TEXT_SIZE];
 
-		if (!MaixCamProtocol_ParseOledData(packet.data, packet.dataLength,
-										   &row, &col, &text, &textLength)) {
+		if (!MaixCamProtocol_ParseOledData(packet.data, packet.dataLength, &row,
+										   &col, &text, &textLength)) {
 			return StageRunnerMaixCamIgnored;
 		}
 		StageRunner_CopyText(displayText, sizeof(displayText), text,
@@ -174,8 +169,7 @@ static StageRunner_MaixCamResult StageRunner_ExecuteMaixCamFrame(uint8_t *frame,
 }
 
 void StageRunner_Init(const StageCommand *commands, int goal,
-					  const StageRunner_Config *config)
-{
+					  const StageRunner_Config *config) {
 	command = commands;
 	Goal = goal;
 	StageIndex = 0;
@@ -196,8 +190,7 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	lastStageTime = getNowMs();
 }
 
-bool StageRunner_Update(uint32_t nowTime)
-{
+bool StageRunner_Update(uint32_t nowTime) {
 	const StageCommand *stageCommand;
 	Stage stage;
 	const void *stageData;
@@ -217,6 +210,25 @@ bool StageRunner_Update(uint32_t nowTime)
 	stageData = stageCommand->data;
 	numData = stageCommand->numData;
 
+	//-----------灰度模块测试显示----------
+	{
+		char temp[24];
+		const char *driverName =
+			(Grayscale_GetActiveDriver() == GrayscaleDriver12) ? "G12" : "G8";
+
+		Grayscale_Sensor_Read_All(grayscale);
+		snprintf(temp, sizeof(temp), "%s:%d %d %d %d %d %d", driverName,
+				 grayscale[0], grayscale[1], grayscale[2], grayscale[3],
+				 grayscale[4], grayscale[5]);
+		Display_ShowString(0, 0, temp);
+		snprintf(temp, sizeof(temp), "%d %d %d %d %d %d", grayscale[6],
+				 grayscale[7], grayscale[8], grayscale[9], grayscale[10],
+				 grayscale[11]);
+		Display_ShowString(1, 0, temp);
+		snprintf(temp, sizeof(temp), "Read:%d", Grayscale_LastReadOk());
+		Display_ShowString(2, 0, temp);
+	}
+
 	switch (stage) {
 	case StageEnd: {
 		MotorRuntime_SetTargetWheelMmps(0, 0);
@@ -227,14 +239,12 @@ bool StageRunner_Update(uint32_t nowTime)
 	case StageRush: {
 		// 猛冲一下
 		if (StageFlag == 0) {
-			MotorRuntime_SetTargetWheelMmps(0.8f * BaseSpeed,
-											0.8f * BaseSpeed);
+			MotorRuntime_SetTargetWheelMmps(0.8f * BaseSpeed, 0.8f * BaseSpeed);
 			MotorRuntime_ResetDistance();
 			StageFlag++;
 		}
-		if (StageFlag == 1 &&
-			(MotorRuntime_GetLeftDistanceMm() > 110 &&
-			 MotorRuntime_GetRightDistanceMm() > 110)) {
+		if (StageFlag == 1 && (MotorRuntime_GetLeftDistanceMm() > 110 &&
+							   MotorRuntime_GetRightDistanceMm() > 110)) {
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			StageFlag++;
@@ -274,25 +284,23 @@ bool StageRunner_Update(uint32_t nowTime)
 	}
 	case StageRightRound: {
 		// StageRightRound
-		float base = 1.0f;
+		bool reached;
+		float base;
+
 		if (StageFlag == 0) {
 			StageFlag++;
 		}
-		if (_read_channel_stable(4)) {
+		(void)Grayscale_GetTurnControl(GrayscaleTurnRight, &reached, &base);
+		if (reached) {
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			StageFlag = 0;
 			lastStageTime = nowTime;
 			StageIndex++;
-		} else if (_read_channel_stable(7)) {
-			base = 0.5f;
-		} else if (_read_channel_stable(6)) {
-			base = 0.3f;
-		} else if (_read_channel_stable(5)) {
-			base = 0.1f;
-		}
-		MotorRuntime_SetTargetWheelMmps((base * RoundSpeed),
+		} else {
+			MotorRuntime_SetTargetWheelMmps((base * RoundSpeed),
 										-(base * RoundSpeed));
+		}
 		break;
 	}
 	case StageLeft: {
@@ -315,25 +323,23 @@ bool StageRunner_Update(uint32_t nowTime)
 	}
 	case StageLeftRound: {
 		// StageLeftRound
-		float base = 1.0f;
+		bool reached;
+		float base;
+
 		if (StageFlag == 0) {
 			StageFlag++;
 		}
-		if (_read_channel_stable(3)) {
+		(void)Grayscale_GetTurnControl(GrayscaleTurnLeft, &reached, &base);
+		if (reached) {
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			StageFlag = 0;
 			lastStageTime = nowTime;
 			StageIndex++;
-		} else if (_read_channel_stable(0)) {
-			base = 0.5f;
-		} else if (_read_channel_stable(1)) {
-			base = 0.3f;
-		} else if (_read_channel_stable(2)) {
-			base = 0.1f;
-		}
-		MotorRuntime_SetTargetWheelMmps(-(base * RoundSpeed),
+		} else {
+			MotorRuntime_SetTargetWheelMmps(-(base * RoundSpeed),
 										(base * RoundSpeed));
+		}
 		break;
 	}
 	case StageCross: {
@@ -395,9 +401,7 @@ bool StageRunner_Update(uint32_t nowTime)
 		float irr = Grayscale_Line(&grayscalePid, grayscale);
 		irr = 0.0f;
 		MotorRuntime_SetTargetRobot(0.5f * BaseSpeed, irr);
-		if (!(grayscale[0] == 0 && grayscale[1] == 0 && grayscale[2] == 0 &&
-			  grayscale[3] == 0 && grayscale[4] == 0 && grayscale[5] == 0 &&
-			  grayscale[6] == 0 && grayscale[7] == 0)) {
+		if (Grayscale_OnlineNum(grayscale) > 0) {
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			Buzzer_Beep();
@@ -415,10 +419,7 @@ bool StageRunner_Update(uint32_t nowTime)
 	}
 	case StageFake: {
 		// StageFake
-		if (_read_channel_stable(0) || _read_channel_stable(1) ||
-			_read_channel_stable(2) || _read_channel_stable(3) ||
-			_read_channel_stable(4) || _read_channel_stable(5) ||
-			_read_channel_stable(6) || _read_channel_stable(7)) {
+		if (Grayscale_OnlineNum(grayscale) > 0) {
 			StageIndex -= 2;
 		} else {
 			StageIndex++;
@@ -490,7 +491,8 @@ bool StageRunner_Update(uint32_t nowTime)
 			lastStageTime = nowTime;
 			StageIndex++;
 		} else {
-			float error = fminf((-IMUData.yaw + numData) / numData + 0.2f, 1.0f);
+			float error =
+				fminf((-IMUData.yaw + numData) / numData + 0.2f, 1.0f);
 			char temp[21];
 			sprintf(temp, "angel:%.2f", IMUData.yaw);
 			Display_ShowString(3, 0, temp);
@@ -530,15 +532,17 @@ bool StageRunner_Update(uint32_t nowTime)
 				StageIndex++;
 			} else if (fabs(stageDistence - avgDistance) < stageSpeed / 4.0f) {
 				MotorRuntime_SetTargetWheelMmps(
-					fminf(fabs(stageDistence - MotorRuntime_GetLeftDistanceMm()) /
-								  (stageSpeed / 4.0f) +
-							  0.2f,
-						  1.0f) *
+					fminf(
+						fabs(stageDistence - MotorRuntime_GetLeftDistanceMm()) /
+								(stageSpeed / 4.0f) +
+							0.2f,
+						1.0f) *
 						stageSpeed,
-					fminf(fabs(stageDistence - MotorRuntime_GetLeftDistanceMm()) /
-								  (stageSpeed / 4.0f) +
-							  0.2f,
-						  1.0f) *
+					fminf(
+						fabs(stageDistence - MotorRuntime_GetLeftDistanceMm()) /
+								(stageSpeed / 4.0f) +
+							0.2f,
+						1.0f) *
 						stageSpeed);
 			} else {
 				IMU_ReadAll(&IMUData);
@@ -563,7 +567,7 @@ bool StageRunner_Update(uint32_t nowTime)
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			MaixCamPendingStage = -1;
-			//获取数据数组
+			// 获取数据数组
 			if (maixData != NULL) {
 				StageRunner_SendMaixCamStageNotify(maixData->bytes,
 												   maixData->length);
@@ -595,12 +599,6 @@ bool StageRunner_Update(uint32_t nowTime)
 	return !shouldStopRun;
 }
 
-int StageRunner_GetStageIndex(void)
-{
-	return StageIndex;
-}
+int StageRunner_GetStageIndex(void) { return StageIndex; }
 
-int StageRunner_GetStageFlag(void)
-{
-	return StageFlag;
-}
+int StageRunner_GetStageFlag(void) { return StageFlag; }

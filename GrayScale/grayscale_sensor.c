@@ -1,102 +1,139 @@
-#include "grayscale_sensor.h"
+/**
+ * @file grayscale_sensor.c
+ * @brief 8/12 路灰度传感器启动选择与统一通道映射。
+ */
 
-static void _delay_us(volatile uint32_t us) { delay_us(us); }
+#include "GrayScale/grayscale_sensor.h"
+#include "GrayScale/GrayScale8/grayscale_sensor.h"
+#include "GrayScale/GrayScale12/grayscale12.h"
+#include <stddef.h>
 
-// 选择传感器通道 select sensor channel
-static void _select_channel(uint8_t channel) {
-	SENSOR_AD0_WRITE((channel >> 0) & 0x01);
-	SENSOR_AD1_WRITE((channel >> 1) & 0x01);
-	SENSOR_AD2_WRITE((channel >> 2) & 0x01);
+static Grayscale_Driver_t s_activeDriver = GrayscaleDriver8;
+static bool s_lastReadOk = false;
+
+static void clear_channels(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    for (uint8_t i = 0u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+        sensorValues[i] = false;
+    }
 }
 
-// 读取OUT引脚的值 read the value of OUT pin
-bool Read_OUT_value(void) {
-	// unsigned int gAdcResult = 0;
-	// bool result;
-	// uint32_t timeout = 200000U;
+static void map_eight_channels(const bool source[GRAYSCALE8_SENSOR_CHANNELS],
+                               bool destination[GRAYSCALE_SENSOR_CHANNELS])
+{
+    clear_channels(destination);
 
-	// // 使能ADC转换
-	// DL_ADC12_enableConversions(ADC12_0_INST);
-	// // 软件触发ADC开始转换
-	// DL_ADC12_startConversion(ADC12_0_INST);
-
-	// // 如果当前状态 不是 空闲状态
-	// while (
-	// 	(DL_ADC12_getStatus(ADC12_0_INST) != DL_ADC12_STATUS_CONVERSION_IDLE) &&
-	// 	(timeout > 0U)) {
-	// 	timeout--;
-	// }
-
-	// // 清除触发转换状态
-	// DL_ADC12_stopConversion(ADC12_0_INST);
-	// // 失能ADC转换
-	// DL_ADC12_disableConversions(ADC12_0_INST);
-
-	// // 防止ADC状态异常导致主循环永久卡住
-	// if (timeout == 0U) {
-	// 	return 0;
-	// }
-
-	// // 获取数据
-	// gAdcResult = DL_ADC12_getMemResult(ADC12_0_INST, ADC12_0_ADCMEM_Grayscale);
-    // //归一化处理
-	// if (gAdcResult <= THRESHOLD)
-	// 	result = false;
-	// else
-	// 	result = true;
-
-	bool result = DL_GPIO_readPins(GrayS_OUT_PORT,GrayS_OUT_PIN);
-	return result;
+    for (uint8_t i = 0u; i < GRAYSCALE8_SENSOR_CHANNELS; i++) {
+        destination[i + 2u] = source[i];
+    }
 }
 
-// 切换通道后进行稳定读取：丢弃首个样本，减少上一通道残留影响
-bool _read_channel_stable(uint8_t channel) {
-	_select_channel(channel);
-	_delay_us(50);
-	Read_OUT_value();
-	_delay_us(50);
+bool Grayscale_Init(void)
+{
+    if (Grayscale12_Init()) {
+        s_activeDriver = GrayscaleDriver12;
+        s_lastReadOk = true;
+        return true;
+    }
 
-	// // ADC采样保持电容在通道切换后可能残留上一通道电压，首样本不用于控制
-	// (void)Read_OUT_value();
-	// _delay_us(10);
-
-	return Read_OUT_value();
+    Grayscale8_Sensor_Init();
+    s_activeDriver = GrayscaleDriver8;
+    s_lastReadOk = true;
+    return true;
 }
 
-// 初始化灰度传感器所需的GPIO / init GPIO for grayscale sensor
-void Grayscale_Sensor_Init(void) {}
-
-// 读取所有8个通道的灰度值 read all 8 channels grayscale values
-void Grayscale_Sensor_Read_All(bool *sensor_values) {
-	uint8_t i;
-	for (i = 0; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
-		sensor_values[i] = _read_channel_stable(7-i);
-	}
+Grayscale_Driver_t Grayscale_GetActiveDriver(void)
+{
+    return s_activeDriver;
 }
 
-// 读取中间四个通道灰度值
-void Grayscale_Sensor_Read_Main(bool *sensor_values) {
-	uint8_t i;
-	for (i = 2; i < 6; i++) {
-		sensor_values[i] = _read_channel_stable(i);
-	}
+bool Grayscale_LastReadOk(void)
+{
+    return s_lastReadOk;
 }
 
-// 读取两边四个通道灰度值
-void Grayscale_Sensor_Read_Other(bool *sensor_values) {
-	uint8_t i;
-	for (i = 0; i < 2; i++) {
-		sensor_values[i] = _read_channel_stable(i);
-	}
-	for (i = 6; i < 8; i++) {
-		sensor_values[i] = _read_channel_stable(i);
-	}
+void Grayscale_Sensor_Init(void)
+{
+    (void)Grayscale_Init();
 }
 
-// 读取单个指定通道的灰度值 read single specified channel grayscale value
-bool Grayscale_Sensor_Read_Single(uint8_t channel) {
-	if (channel >= GRAYSCALE_SENSOR_CHANNELS) {
-		return 0; // 无效通道 // Invalid channel
-	}
-	return _read_channel_stable(channel);
+void Grayscale_Sensor_Read_All(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    if (sensorValues == NULL) {
+        s_lastReadOk = false;
+        return;
+    }
+
+    if (s_activeDriver == GrayscaleDriver12) {
+        bool values12[GRAYSCALE_SENSOR_CHANNELS] = {false};
+
+        s_lastReadOk = Grayscale12_ReadChannels(values12);
+        if (s_lastReadOk) {
+            for (uint8_t i = 0u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+                sensorValues[i] = values12[i];
+            }
+        } else {
+            clear_channels(sensorValues);
+        }
+        return;
+    }
+
+    {
+        bool values8[GRAYSCALE8_SENSOR_CHANNELS];
+
+        Grayscale8_Sensor_Read_All(values8);
+        map_eight_channels(values8, sensorValues);
+        s_lastReadOk = true;
+    }
+}
+
+void Grayscale_Sensor_Read_Main(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    bool values[GRAYSCALE_SENSOR_CHANNELS];
+
+    if (sensorValues == NULL) {
+        s_lastReadOk = false;
+        return;
+    }
+
+    Grayscale_Sensor_Read_All(values);
+    for (uint8_t i = 4u; i <= 7u; i++) {
+        sensorValues[i] = values[i];
+    }
+}
+
+void Grayscale_Sensor_Read_Other(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    bool values[GRAYSCALE_SENSOR_CHANNELS];
+
+    if (sensorValues == NULL) {
+        s_lastReadOk = false;
+        return;
+    }
+
+    Grayscale_Sensor_Read_All(values);
+    for (uint8_t i = 0u; i < 4u; i++) {
+        sensorValues[i] = values[i];
+    }
+    for (uint8_t i = 8u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+        sensorValues[i] = values[i];
+    }
+}
+
+bool Grayscale_Sensor_Read_Single(uint8_t channel)
+{
+    bool values[GRAYSCALE_SENSOR_CHANNELS];
+
+    if (channel >= GRAYSCALE_SENSOR_CHANNELS) {
+        s_lastReadOk = false;
+        return false;
+    }
+
+    Grayscale_Sensor_Read_All(values);
+    return s_lastReadOk && values[channel];
+}
+
+bool _read_channel_stable(uint8_t channel)
+{
+    return Grayscale_Sensor_Read_Single(channel);
 }

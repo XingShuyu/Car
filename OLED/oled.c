@@ -4,12 +4,11 @@
  */
 
 #include "oled.h"
+#include "BasicMicroLib/i2c_display_bus.h"
 #include "ti_msp_dl_config.h"
 #include <stdlib.h>
 #include <string.h>
 
-#define OLED_I2C_INST       I2C_LED_display_INST
-#define OLED_I2C_TIMEOUT    1000000u
 #define OLED_CONTROL_CMD    0x00u
 #define OLED_CONTROL_DATA   0x40u
 #define OLED_I2C_FIFO_SIZE  8u
@@ -19,79 +18,10 @@ static uint8_t s_framebuffer[OLED_BUFFER_SIZE];
 static uint8_t s_i2cAddress = 0x3Cu;
 static bool s_isReady = false;
 
-static bool i2c_wait_idle(void)
-{
-    uint32_t timeout = OLED_I2C_TIMEOUT;
-
-    while ((DL_I2C_getControllerStatus(OLED_I2C_INST) &
-            DL_I2C_CONTROLLER_STATUS_BUSY_BUS) != 0u) {
-        if (--timeout == 0u) {
-            return false;
-        }
-    }
-
-    return true;
-}
-
-static bool i2c_wait_stop_or_nack(void)
-{
-    uint32_t timeout = OLED_I2C_TIMEOUT;
-    uint32_t status;
-
-    do {
-        status = DL_I2C_getRawInterruptStatus(
-            OLED_I2C_INST,
-            DL_I2C_INTERRUPT_CONTROLLER_STOP |
-                DL_I2C_INTERRUPT_CONTROLLER_NACK);
-        if (--timeout == 0u) {
-            return false;
-        }
-    } while (status == 0u);
-
-    DL_I2C_clearInterruptStatus(
-        OLED_I2C_INST,
-        DL_I2C_INTERRUPT_CONTROLLER_STOP |
-            DL_I2C_INTERRUPT_CONTROLLER_NACK);
-
-    return (status & DL_I2C_INTERRUPT_CONTROLLER_NACK) == 0u;
-}
-
-static bool i2c_write(uint8_t address, const uint8_t *data, uint8_t length)
-{
-    uint16_t sent = 0u;
-
-    if ((data == NULL) || (length == 0u) || (length > OLED_I2C_FIFO_SIZE)) {
-        return false;
-    }
-
-    if (!i2c_wait_idle()) {
-        return false;
-    }
-
-    DL_I2C_clearInterruptStatus(
-        OLED_I2C_INST,
-        DL_I2C_INTERRUPT_CONTROLLER_STOP |
-            DL_I2C_INTERRUPT_CONTROLLER_NACK);
-    DL_I2C_flushControllerTXFIFO(OLED_I2C_INST);
-
-    while (sent < length) {
-        DL_I2C_fillControllerTXFIFO(OLED_I2C_INST, (uint8_t *)&data[sent], 1u);
-        sent++;
-    }
-
-    DL_I2C_startControllerTransfer(
-        OLED_I2C_INST,
-        address,
-        DL_I2C_CONTROLLER_DIRECTION_TX,
-        length);
-
-    return i2c_wait_stop_or_nack();
-}
-
 static bool write_command(uint8_t command)
 {
     uint8_t buffer[2] = {OLED_CONTROL_CMD, command};
-    return i2c_write(s_i2cAddress, buffer, sizeof(buffer));
+    return I2C_DisplayBus_Write(s_i2cAddress, buffer, sizeof(buffer));
 }
 
 static bool write_data(const uint8_t *data, uint8_t length)
@@ -104,7 +34,7 @@ static bool write_data(const uint8_t *data, uint8_t length)
 
     buffer[0] = OLED_CONTROL_DATA;
     memcpy(&buffer[1], data, length);
-    return i2c_write(s_i2cAddress, buffer, (uint8_t)(length + 1u));
+    return I2C_DisplayBus_Write(s_i2cAddress, buffer, (uint8_t)(length + 1u));
 }
 
 static bool set_page_address(uint8_t page, uint8_t column)
@@ -131,7 +61,7 @@ static void set_pixel_i(int x, int y, bool on)
 static bool probe_address(uint8_t address)
 {
     uint8_t buffer[2] = {OLED_CONTROL_CMD, 0xAEu};
-    return i2c_write(address, buffer, sizeof(buffer));
+    return I2C_DisplayBus_Write(address, buffer, sizeof(buffer));
 }
 
 static bool select_oled_address(void)

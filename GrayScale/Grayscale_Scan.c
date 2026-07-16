@@ -1,219 +1,288 @@
-#include "Grayscale_Scan.h"
-
-static float error;
-float sensor_weight[8] = {-3.0, -2.7, -2.5, -2.0, 2.0, 2.5, 2.7, 3.0};
-
-#define IRTrack_Trun_KP (100) // 140
-#define IRTrack_Trun_KI (0.15)
-#define IRTrack_Trun_KD (7)
-
-int pid_output_IRR = 0;
-
-#define IRR_SPEED 450	  // 巡线速度
-#define IRTrack_Minddle 0 // 中间的值
-
-// 巡线pid
-int8_t error_last = 0;
-// 积分
-float IRTrack_Integral;
-float Track_PID(int8_t actual_value) {
-	float IRTrackTurn = 0;
-	int8_t error;
-	error = actual_value - IRTrack_Minddle;
-
-	IRTrack_Integral += error;
-
-	if (IRTrack_Integral > 200) {
-		IRTrack_Integral = 200;
-	} else if (IRTrack_Integral < -200) {
-		IRTrack_Integral = -200;
-	}
-
-	//	//位置式pid
-	IRTrackTurn = error * IRTrack_Trun_KP + IRTrack_Trun_KI * IRTrack_Integral +
-				  (error - error_last) * IRTrack_Trun_KD;
-	return IRTrackTurn;
-}
-
-// 中间四个光电返回直线pid结果
-float Grayscale_Line(PID *pid, bool *sensor_values) {
-	// static float wNow, eOld, ePrev;
-	// error>0 左转
-	// static float eOld, eNew;
-	// float eRow, weightedSum;
-	// int activeSensor;
-	Grayscale_Sensor_Read_All(sensor_values);
-	// weightedSum = 0;
-	// activeSensor = 0;
-	// // 重心归一化
-	// for (int i = 0; i < 8; i++) {
-	// 	if (sensor_values[i]) {
-	// 		weightedSum += sensor_weight[i];
-	// 		activeSensor++;
-	// 	}
-	// }
-	// if (activeSensor == 0) {
-	// 	eRow = eNew;
-	// } else {
-	// 	eRow = weightedSum / (float)activeSensor;
-	// }
-	// eNew = A * eNew + (1 - A) * eRow;
-	// error = pid->p * eNew + pid->d * (eNew - eOld) / pid->t;
-	// eOld = eNew;
-
-	// // 计算转向参数
-	// if (sensor_values[3] == 1 && sensor_values[4] == 1) {
-	// 	error = 0;
-	// }
-	// if (sensor_values[3] == 1 && sensor_values[4] == 0) {
-	// 	error = -0.05;
-	// }
-	// if (sensor_values[3] == 0 && sensor_values[4] == 1) {
-	// 	error = 0.05;
-	// }
-	// if (sensor_values[5] == 1 && sensor_values[4] == 1) {
-	// 	error = 0.07;
-	// }
-	// if (sensor_values[2] == 1 && sensor_values[3] == 1) {
-	// 	error = -0.07;
-	// }
-	// if (sensor_values[2] == 1 && sensor_values[3] == 0) {
-	// 	error = -0.1;
-	// }
-	// if (sensor_values[5] == 1 && sensor_values[4] == 0) {
-	// 	error = 0.1;
-	// }
-	// if (sensor_values[1] == 1) {
-	// 	error = -0.13;
-	// }
-	// if (sensor_values[6] == 1) {
-	// 	error = 0.13;
-	// }
-	// if (sensor_values[0] == 1) {
-	// 	error = -0.15;
-	// }
-	// if (sensor_values[7] == 1) {
-	// 	error = 0.15;
-	// }
-
-	//----------------------------------
-	// if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-	// 	sensor_values[4] == 0 && sensor_values[5] == 1) {
-	// 	error = 3.5;
-	// } else if (sensor_values[2] == 1 && sensor_values[3] == 0 &&
-	// 		   sensor_values[4] == 0 && sensor_values[5] == 0) {
-	// 	error = -3.5;
-	// } else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-	// 		   sensor_values[4] == 1 && sensor_values[5] == 1) {
-	// 	error = 2.5;
-	// } else if (sensor_values[2] == 1 && sensor_values[3] == 1 &&
-	// 		   sensor_values[4] == 0 && sensor_values[5] == 0) {
-	// 	error = -2.5;
-	// } else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-	// 		   sensor_values[4] == 1 && sensor_values[5] == 0) {
-	// 	error = 1;
-	// } else if (sensor_values[2] == 0 && sensor_values[3] == 1 &&
-	// 		   sensor_values[4] == 0 && sensor_values[5] == 0) {
-	// 	error = -1;
-	// } else if (sensor_values[3] == 1 && sensor_values[4] == 1) {
-	// 	error = 0;
-	// } else if (sensor_values[0] == 1) {
-	// 	error = -7;
-	// } else if (sensor_values[7] == 1) {
-	// 	error = 7;
-	// } else if (sensor_values[1] == 1) {
-	// 	error = -5;
-	// } else if (sensor_values[6] == 1) {
-	// 	error = 5;
-	// }
-
-	if (sensor_values[2] == 0 && sensor_values[3] == 1 &&
-		sensor_values[4] == 1 && sensor_values[5] == 0) {
-		error = 0;
-	} else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-			   sensor_values[4] == 1 && sensor_values[5] == 0) {
-		error = 1;
-	} else if (sensor_values[2] == 0 && sensor_values[3] == 1 &&
-			   sensor_values[4] == 0 && sensor_values[5] == 0) {
-		error = -1;
-	} else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-			   sensor_values[4] == 1 && sensor_values[5] == 1) {
-		error = 3;
-	} else if (sensor_values[2] == 1 && sensor_values[3] == 1 &&
-			   sensor_values[4] == 0 && sensor_values[5] == 0) {
-		error = -3;
-	} else if (sensor_values[2] == 0 && sensor_values[3] == 0 &&
-			   sensor_values[4] == 0 && sensor_values[5] == 1) {
-		error = 5;
-	} else if (sensor_values[2] == 1 && sensor_values[3] == 0 &&
-			   sensor_values[4] == 0 && sensor_values[5] == 0) {
-		error = -5;
-	} else if (sensor_values[5] == 1 && sensor_values[6] == 1) {
-		error = 7;
-	} else if (sensor_values[1] == 1 && sensor_values[2] == 1) {
-		error = -7;
-	} else if (sensor_values[7] == 1) {
-		error = 10;
-	} else if (sensor_values[0] == 1) {
-		error = -10;
-	}
-
-	pid_output_IRR = (int)(Track_PID(error));
-	// pid_output_IRR = 130 * error;
-
-	return 1.5 * pid_output_IRR;
-
-	// // wNow = pid->p * eNew + pid->d * (eNew - eOld);
-	// wNow += PID_calculate(pid, eRow, eOld, ePrev);
-	// ePrev = eOld;
-	// eOld = eRow;
-	// printf("Back:%.2f\r\n", eRow);
-	// return eRow/3.0;
-}
-
-/*十字路口/直角弯道判断
- * @param sensor_values 传感器状态数组
- * @param status 2为左直角，1为右直角，0为十字路口/丁字
- * @return 是否符合
+/**
+ * @file Grayscale_Scan.c
+ * @brief 8/12 路灰度模块的统一循迹与路口适配实现。
  */
-bool Grayscale_Cross(bool *sensor_values, int status) {
-	Grayscale_Sensor_Read_All(sensor_values);
-	if (status == 2) {
-		return (sensor_values[0] == 0 && sensor_values[6] > 0 &&
-				sensor_values[7] > 0 && sensor_values[5] > 0);
-	} else if (status == 1) {
-		return (sensor_values[0] > 0 && sensor_values[1] > 0 &&
-				sensor_values[2] > 0 && sensor_values[7] == 0);
-	} else if (status == 0) {
-		return (sensor_values[2] > 0 && sensor_values[1] > 0 &&
-				sensor_values[3] > 0 && sensor_values[4] > 0 &&
-				sensor_values[6] > 0 && sensor_values[5] > 0);
-	} else {
-		return false;
-	}
+
+#include "GrayScale/Grayscale_Scan.h"
+#include "GrayScale/GrayScale8/Grayscale_Scan.h"
+#include "GrayScale/GrayScale12/grayscale12_control.h"
+#include <stddef.h>
+
+#define GRAYSCALE12_COMPAT_KP        (1070.0f)
+#define GRAYSCALE12_COMPAT_KI        (0.0f)
+#define GRAYSCALE12_COMPAT_KD        (0.0f)
+#define GRAYSCALE12_COMPAT_I_MAX     (100000.0f)
+#define GRAYSCALE12_COMPAT_PERIOD_MS (10.0f)
+#define GRAYSCALE12_COMPAT_IRR_SCALE (1.5f)
+
+static PID s_pid12 = {
+    .p = GRAYSCALE12_COMPAT_KP,
+    .i = GRAYSCALE12_COMPAT_KI,
+    .d = GRAYSCALE12_COMPAT_KD,
+    .i_Max = GRAYSCALE12_COMPAT_I_MAX,
+    .saved_i = 0.0f,
+    .t = GRAYSCALE12_COMPAT_PERIOD_MS,
+};
+
+static Grayscale12_LineController_t s_controller12;
+static bool s_controller12Ready = false;
+static float s_irrScale12 = GRAYSCALE12_COMPAT_IRR_SCALE;
+
+static void clear_channels(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    for (uint8_t i = 0u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+        sensorValues[i] = false;
+    }
 }
 
-void Grayscale_Zero(bool *sensor_values) {
-	sensor_values[0] = 0;
-	sensor_values[1] = 0;
-	sensor_values[2] = 0;
-	sensor_values[3] = 1;
-	sensor_values[4] = 1;
-	sensor_values[5] = 0;
-	sensor_values[6] = 0;
-	sensor_values[7] = 0;
-	error = 0;
-	error_last = 0;
-	IRTrack_Integral = 0.0;
+static void map_eight_channels(const bool source[GRAYSCALE8_SENSOR_CHANNELS],
+                               bool destination[GRAYSCALE_SENSOR_CHANNELS])
+{
+    clear_channels(destination);
+
+    for (uint8_t i = 0u; i < GRAYSCALE8_SENSOR_CHANNELS; i++) {
+        destination[i + 2u] = source[i];
+    }
 }
 
-int Grayscale_OnlineNum(bool *sensor_values) {
-	Grayscale_Sensor_Read_All(sensor_values);
-	int num = 0;
-	for (int i = 0; i < 8; i++) {
-		if (sensor_values[i]) {
-			num++;
-		}
-	}
-	return num;
+static void ensure_controller12(void)
+{
+    if (!s_controller12Ready || (s_controller12.pid != &s_pid12)) {
+        (void)Grayscale12_LineController_Init(&s_controller12, &s_pid12);
+        s_controller12Ready = true;
+    }
+}
+
+static uint16_t channels_to_raw12(
+    const bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    uint16_t raw12 = 0u;
+
+    for (uint8_t i = 0u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+        if (sensorValues[i]) {
+            raw12 |= (uint16_t)1u << i;
+        }
+    }
+
+    return raw12;
+}
+
+float Grayscale_Line(PID *pid,
+                     bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    if (sensorValues == NULL) {
+        return 0.0f;
+    }
+
+    if (Grayscale_GetActiveDriver() == GrayscaleDriver8) {
+        bool values8[GRAYSCALE8_SENSOR_CHANNELS];
+        float irr = Grayscale8_Line(pid, values8);
+
+        map_eight_channels(values8, sensorValues);
+        return irr;
+    }
+
+    {
+        bool lineDetected;
+
+        ensure_controller12();
+        Grayscale_Sensor_Read_All(sensorValues);
+        return Grayscale12_LineFromRaw(
+                   &s_controller12, channels_to_raw12(sensorValues),
+                   &lineDetected) *
+               s_irrScale12;
+    }
+}
+
+bool Grayscale_Cross(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS], int status)
+{
+    if (sensorValues == NULL) {
+        return false;
+    }
+
+    if (Grayscale_GetActiveDriver() == GrayscaleDriver8) {
+        bool values8[GRAYSCALE8_SENSOR_CHANNELS];
+        bool result = Grayscale8_Cross(values8, status);
+
+        map_eight_channels(values8, sensorValues);
+        return result;
+    }
+
+    Grayscale_Sensor_Read_All(sensorValues);
+    if (!Grayscale_LastReadOk()) {
+        return false;
+    }
+
+    if (status == 1) {
+        return sensorValues[0] && sensorValues[1] && sensorValues[2] &&
+               sensorValues[3] && !sensorValues[11];
+    }
+    if (status == 2) {
+        return sensorValues[8] && sensorValues[9] && sensorValues[10] &&
+               sensorValues[11] && !sensorValues[0];
+    }
+    if (status == 0) {
+        for (uint8_t i = 2u; i <= 9u; i++) {
+            if (!sensorValues[i]) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    return false;
+}
+
+void Grayscale_Zero(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    if (sensorValues == NULL) {
+        return;
+    }
+
+    if (Grayscale_GetActiveDriver() == GrayscaleDriver8) {
+        bool values8[GRAYSCALE8_SENSOR_CHANNELS];
+
+        Grayscale8_Zero(values8);
+        map_eight_channels(values8, sensorValues);
+        return;
+    }
+
+    ensure_controller12();
+    Grayscale12_LineController_Reset(&s_controller12);
+    clear_channels(sensorValues);
+    sensorValues[5] = true;
+    sensorValues[6] = true;
+}
+
+int Grayscale_OnlineNum(bool sensorValues[GRAYSCALE_SENSOR_CHANNELS])
+{
+    if (sensorValues == NULL) {
+        return 0;
+    }
+
+    if (Grayscale_GetActiveDriver() == GrayscaleDriver8) {
+        bool values8[GRAYSCALE8_SENSOR_CHANNELS];
+        int count = Grayscale8_OnlineNum(values8);
+
+        map_eight_channels(values8, sensorValues);
+        return count;
+    }
+
+    Grayscale_Sensor_Read_All(sensorValues);
+    if (!Grayscale_LastReadOk()) {
+        return 0;
+    }
+
+    {
+        int count = 0;
+
+        for (uint8_t i = 0u; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+            if (sensorValues[i]) {
+                count++;
+            }
+        }
+        return count;
+    }
+}
+
+bool Grayscale_GetTurnControl(Grayscale_TurnDirection_t direction,
+                              bool *reached, float *speedScale)
+{
+    bool values[GRAYSCALE_SENSOR_CHANNELS];
+    float scale = 1.0f;
+    bool isReached = false;
+
+    Grayscale_Sensor_Read_All(values);
+    if (!Grayscale_LastReadOk()) {
+        if (reached != NULL) {
+            *reached = false;
+        }
+        if (speedScale != NULL) {
+            *speedScale = scale;
+        }
+        return false;
+    }
+
+    if (direction == GrayscaleTurnRight) {
+        if (Grayscale_GetActiveDriver() == GrayscaleDriver12) {
+            isReached = values[6];       /* P7 */
+            if (values[11]) {
+                scale = 0.5f;            /* P12 */
+            } else if (values[10]) {
+                scale = 0.3f;            /* P11 */
+            } else if (values[9]) {
+                scale = 0.1f;            /* P10 */
+            }
+        } else {
+            isReached = values[6];       /* old channel 4 */
+            if (values[9]) {
+                scale = 0.5f;            /* old channel 7 */
+            } else if (values[8]) {
+                scale = 0.3f;            /* old channel 6 */
+            } else if (values[7]) {
+                scale = 0.1f;            /* old channel 5 */
+            }
+        }
+    } else {
+        if (Grayscale_GetActiveDriver() == GrayscaleDriver12) {
+            isReached = values[5];       /* P6 */
+            if (values[0]) {
+                scale = 0.5f;            /* P1 */
+            } else if (values[1]) {
+                scale = 0.3f;            /* P2 */
+            } else if (values[2]) {
+                scale = 0.1f;            /* P3 */
+            }
+        } else {
+            isReached = values[5];       /* old channel 3 */
+            if (values[2]) {
+                scale = 0.5f;            /* old channel 0 */
+            } else if (values[3]) {
+                scale = 0.3f;            /* old channel 1 */
+            } else if (values[4]) {
+                scale = 0.1f;            /* old channel 2 */
+            }
+        }
+    }
+
+    if (reached != NULL) {
+        *reached = isReached;
+    }
+    if (speedScale != NULL) {
+        *speedScale = scale;
+    }
+    return true;
+}
+
+bool Grayscale_Set12Pid(const PID *pid)
+{
+    if (pid == NULL) {
+        return false;
+    }
+
+    s_pid12 = *pid;
+    s_pid12.saved_i = 0.0f;
+    s_controller12Ready = false;
+    ensure_controller12();
+    return true;
+}
+
+const PID *Grayscale_Get12Pid(void)
+{
+    return &s_pid12;
+}
+
+bool Grayscale_Set12IrrScale(float scale)
+{
+    if (scale == 0.0f) {
+        return false;
+    }
+
+    s_irrScale12 = scale;
+    return true;
+}
+
+float Grayscale_Get12IrrScale(void)
+{
+    return s_irrScale12;
 }

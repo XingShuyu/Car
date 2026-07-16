@@ -7,6 +7,7 @@
 #include "Drivers/button_select.h"
 #include "Drivers/buzzer.h"
 #include "Emm/Emm.h"
+#include "GrayScale/grayscale_sensor.h"
 #include "IMU/imu.h"
 #include "Motor/motor_runtime.h"
 #include "Motor/motor_step_test.h"
@@ -22,8 +23,7 @@ static const StageRunner_Config stageConfig = {
 	.round_speed_mmps = 150,
 };
 
-static uint8_t App_SelectIndex(uint32_t wait_ms, const char *label)
-{
+static uint8_t App_SelectIndex(uint32_t wait_ms, const char *label) {
 	ButtonSelect_Reset();
 	startTime = getNowMs();
 	while (getTimeMs(getNowMs(), startTime) < wait_ms) {
@@ -36,8 +36,7 @@ static uint8_t App_SelectIndex(uint32_t wait_ms, const char *label)
 	return ButtonSelect_GetIndex();
 }
 
-int main(void)
-{
+int main(void) {
 	uint8_t textIndex;
 	int goal = 0;
 	const StageCommand *command;
@@ -55,6 +54,11 @@ int main(void)
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	Display_Init(); // 初始化显示屏
+	(void)Grayscale_Init();
+	Display_ShowString(0, 0,
+				   (Grayscale_GetActiveDriver() == GrayscaleDriver12) ?
+					   "Gray12 Ready" :
+					   "Gray8 Ready");
 
 	TimeBase_Init(); // 初始化计时器
 
@@ -105,7 +109,7 @@ int main(void)
 	Buzzer_Beep();
 	StageRunner_Init(command, goal, &stageConfig);
 	MotorRuntime_SetTargetWheelMmps(stageConfig.base_speed_mmps,
-								   stageConfig.base_speed_mmps);
+									stageConfig.base_speed_mmps);
 
 	while (1) {
 		// 更新当前时间

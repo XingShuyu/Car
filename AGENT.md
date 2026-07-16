@@ -12,7 +12,7 @@ SDK位置`D:\ElecCompetation\TI\Softwares\MSPM0_SDK`
 ## 1. 项目概览
 
 - **硬件平台**: TI MSPM0G3507 (LQFP-64, ARM Cortex-M0+)
-- **功能**: 循迹小车，8路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信
+- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信
 - **开发环境**: TI CCS (Code Composer Studio), SysConfig 自动生成 `ti_msp_dl_config.c/h`
 - **SDK**: mspm0_sdk@2.10.00.04
 - **编译链**: tiarmclang (LLVM) + gmake
@@ -53,9 +53,11 @@ Main/
 │   ├── usart.h / usart.c           # UART0 DMA收发与printf输出
 │   └── PID.h / PID.c               # 通用PID结构体与计算函数
 │
-├── GrayScale/                      # 灰度传感器
-│   ├── grayscale_sensor.h / .c     # 8通道CD4051读取与稳定单通道读取
-│   └── Grayscale_Scan.h / .c       # 循线PID、十字/直角判断
+├── GrayScale/                      # 灰度模块统一适配层
+│   ├── grayscale_sensor.h / .c     # 自动选择、统一 P1~P12 传感器接口
+│   ├── Grayscale_Scan.h / .c       # 统一循迹、路口和原地转弯接口
+│   ├── GrayScale8/                 # 8路 CD4051 后端（保留原PID和规则）
+│   └── GrayScale12/                # 12路 NCHD12/PCA9555 后端与独立PID
 │
 ├── IMU/                            # IMU惯性测量
 │   ├── imu.h / imu_data.h          # 统一IMU入口与标准数据结构
@@ -145,7 +147,7 @@ main()
   ├── SYSCFG_DL_init()
   ├── MaixCamSerial_Init() / BluetoothSerial_Init()
   ├── BoardIrq_Enable() / USART_Init()
-  ├── Display_Init() / TimeBase_Init()
+   ├── Display_Init() / Grayscale_Init() / TimeBase_Init()
   ├── Emm_Init(1/2)
   ├── MotorRuntime_Init()
   ├── IMU_Init()
@@ -161,12 +163,13 @@ main()
 
 ## 5. 主要模块说明
 
-### 5.1 灰度传感器 (`GrayScale/`)
+### 5.1 灰度模块统一适配层 (`GrayScale/`)
 
-- `Grayscale_Sensor_Read_All(bool[8])`: 读全部8通道
-- `_read_channel_stable(ch)`: 单通道稳定读取
-- `Grayscale_Line(pid, sensor_values)`: 返回循线转向修正
-- `Grayscale_Cross(sensor_values, status)`: 判断十字/直角；`status=0` 十字/丁字，`1` 右直角，`2` 左直角
+- `Grayscale_Init()` 在启动时优先检测并初始化 NCHD12；未应答时固定回退到 8 路 CD4051。运行中 I2C 读失败不会切换模块，可通过 `Grayscale_LastReadOk()` 获取读取状态。
+- `Grayscale_Sensor_Read_All(bool[12])` 统一输出 P1（右）至 P12（左）。12 路后端完整输出 12 路；8 路后端映射到 P3~P10，P1/P2/P11/P12 为 0。
+- `Grayscale_Line()`、`Grayscale_Cross()`、`Grayscale_Zero()`、`Grayscale_OnlineNum()` 与 `Grayscale_GetTurnControl()` 均按活动后端自动分发。
+- 8 路继续使用原有 `Track_PID` 参数与输出；12 路使用独立 PID 和可单独设置的 `Grayscale_Set12Pid()`、`Grayscale_Set12IrrScale()`。
+- 12 路十字/直角使用完整 P1~P12：右直角 P1~P4，左直角 P9~P12，十字 P3~P10；P1 位于车体右侧。
 
 ### 5.2 IMU (`IMU/`)
 
