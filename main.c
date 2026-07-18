@@ -2,6 +2,7 @@
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
 #include "Communication/bluetooth_serial.h"
+#include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
 #include "Drivers/button_select.h"
@@ -18,10 +19,58 @@
 #include <stdint.h>
 #include <stdio.h>
 
+/*
+ * 首次配置某一块 DL-LN33 时，临时设为 1，并为每个节点填写唯一地址。
+ * 配置成功后模块会保存参数并重启；日常运行请保持为 0，避免每次上电重启组网模块。
+ */
+#define DL_LN33_AUTO_CONFIG_ON_BOOT 0U
+#define DL_LN33_NODE_ADDRESS         0x0002U
+#define DL_LN33_NETWORK_ID           0x1988U
+#define DL_LN33_CHANNEL              0x0FU
+
+/*
+ * 联调角色：本机地址为 0x0002。收到 0x0001 从 A0 端口发来的 "PING" 后，
+ * 立即从 A0 端口回复 "PONG"。该测试会取走 DL-LN33 接收队列中的帧，
+ * 因此接入正式无线业务前请改为 0。
+ */
+#define DL_LN33_PINGPONG_TEST_ENABLE 1U
+#define DL_LN33_PINGPONG_PORT        0xA0U
+#define DL_LN33_PINGPONG_PEER        0x0001U
+
+#if DL_LN33_AUTO_CONFIG_ON_BOOT
+static const DLLN33_NetworkConfig dlLn33NetworkConfig = {
+	.address = DL_LN33_NODE_ADDRESS,
+	.network_id = DL_LN33_NETWORK_ID,
+	.channel = DL_LN33_CHANNEL,
+};
+#endif
+
 static const StageRunner_Config stageConfig = {
 	.base_speed_mmps = 300,
 	.round_speed_mmps = 150,
 };
+
+#if DL_LN33_PINGPONG_TEST_ENABLE
+static void App_DLN33PingPongPoll(void)
+{
+	DLLN33_Frame frame;
+	static const uint8_t pong[4U] = {'P', 'O', 'N', 'G'};
+
+	while (DLLN33_TryReceive(&frame)) {
+		if ((frame.remote_address != DL_LN33_PINGPONG_PEER) ||
+			(frame.destination_port != DL_LN33_PINGPONG_PORT) ||
+			(frame.payload_length != 4U) ||
+			(frame.payload[0] != 'P') || (frame.payload[1] != 'I') ||
+			(frame.payload[2] != 'N') || (frame.payload[3] != 'G')) {
+			continue;
+		}
+
+		/* 回复到发送方的源端口；本测试中 0x0001 也使用 A0 端口。 */
+		(void)DLLN33_Send(frame.remote_address, DL_LN33_PINGPONG_PORT,
+						frame.source_port, pong, sizeof(pong));
+	}
+}
+#endif
 
 static uint8_t App_SelectIndex(uint32_t wait_ms, const char *label) {
 	ButtonSelect_Reset();
@@ -49,6 +98,7 @@ int main(void) {
 
 	MaixCamSerial_Init();
 	BluetoothSerial_Init();
+	DLLN33_Init();
 	BoardIrq_Enable();
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
 	setvbuf(stdout, NULL, _IONBF, 0);
@@ -61,6 +111,11 @@ int main(void) {
 					   "Gray8 Ready");
 
 	TimeBase_Init(); // 初始化计时器
+
+#if DL_LN33_AUTO_CONFIG_ON_BOOT
+	/* 异步写入地址、网络 ID、信道和默认 115200 波特率，完成后模块自动重启。 */
+	(void)DLLN33_BeginNetworkSetup(&dlLn33NetworkConfig);
+#endif
 
 	// 使能云台
 	Emm_Init(1);
@@ -116,6 +171,10 @@ int main(void) {
 		nowTime = getNowMs();
 		USART_PollTx();
 		MaixCamSerial_Poll();
+		DLLN33_Poll();
+#if DL_LN33_PINGPONG_TEST_ENABLE
+		App_DLN33PingPongPoll();
+#endif
 		// 每10ms获取电机运行圈数
 		MotorRuntime_Update(nowTime, getNowUs());
 
