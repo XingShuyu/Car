@@ -48,8 +48,9 @@ bool Grayscale12_NormalizeRaw(uint16_t raw12, float *position);
 /**
  * 对已读取的 raw12 进行归一化和 PID 计算，返回转向修正量。
  *
- * lineDetected 可为 NULL。丢线时不会继续积分或计算微分，而是保持上一次
- * 有效控制输出；从未检测到线时返回 0。
+ * lineDetected 可为 NULL。丢线时不会继续积分或计算微分，而是根据最后一次
+ * 有效位置保持 P+I 输出；从未检测到线时返回 0。重新检测到线的第一帧不计算
+ * D 项。
  */
 float Grayscale12_LineFromRaw(Grayscale12_LineController_t *controller,
                               uint16_t raw12, bool *lineDetected);
@@ -58,7 +59,7 @@ float Grayscale12_LineFromRaw(Grayscale12_LineController_t *controller,
  * 读取 NCHD12、填充 sensorValues 并返回 PID 转向修正量。
  *
  * sensorValues 可为 NULL；若 I2C 通信失败，lineDetected 会被置为 false，
- * 函数保持最近一次有效输出。
+ * 并采用与真实丢线相同的最后位置保持策略。
  */
 float Grayscale12_Line(Grayscale12_LineController_t *controller,
                        bool sensorValues[GRAYSCALE12_CHANNELS],

@@ -6,7 +6,7 @@
 #include "GrayScale/GrayScale12/grayscale12_control.h"
 #include <stddef.h>
 
-#define GRAYSCALE12_DEFAULT_PERIOD_S (0.01f)
+#define GRAYSCALE12_DEFAULT_PERIOD_S (0.1f)
 
 static float clamp_symmetric(float value, float limit)
 {
@@ -58,6 +58,29 @@ static float update_pid(Grayscale12_LineController_t *controller, float error)
     controller->lastOutput = pid->p * error + integralTerm + pid->d * derivative;
 
     return controller->lastOutput;
+}
+
+static float hold_last_position(Grayscale12_LineController_t *controller)
+{
+    float heldOutput = 0.0f;
+
+    if ((controller == NULL) || (controller->pid == NULL)) {
+        return 0.0f;
+    }
+
+    /*
+     * 丢线时冻结位置和积分，只按最后一次有效位置重新计算 P+I。
+     * lastOutput 可能包含脱线前一帧的 D 尖峰，不能直接继续使用。
+     */
+    if (controller->hasPosition) {
+        heldOutput = controller->pid->p * controller->lastPosition +
+                     controller->pid->saved_i;
+    }
+
+    controller->previousError = 0.0f;
+    controller->hasPreviousError = false;
+    controller->lastOutput = heldOutput;
+    return heldOutput;
 }
 
 bool Grayscale12_LineController_Init(Grayscale12_LineController_t *controller,
@@ -136,16 +159,7 @@ float Grayscale12_LineFromRaw(Grayscale12_LineController_t *controller,
             *lineDetected = false;
         }
 
-        /*
-         * 丢线期间保持最近一次转向输出以继续搜线，但丢弃微分历史。
-         * 否则重新检测到黑线时，会把脱线前后的位置差误当作一个控制
-         * 周期内的突变，产生过大的 D 项。
-         */
-        if (controller != NULL) {
-            controller->previousError = 0.0f;
-            controller->hasPreviousError = false;
-        }
-        return (controller != NULL) ? controller->lastOutput : 0.0f;
+        return hold_last_position(controller);
     }
 
     if (lineDetected != NULL) {
@@ -169,7 +183,7 @@ float Grayscale12_Line(Grayscale12_LineController_t *controller,
         if (lineDetected != NULL) {
             *lineDetected = false;
         }
-        return (controller != NULL) ? controller->lastOutput : 0.0f;
+        return hold_last_position(controller);
     }
 
     if (sensorValues != NULL) {

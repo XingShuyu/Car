@@ -23,6 +23,9 @@
 #define STAGE_RUNNER_MAIXCAM_WAIT_NOTIFY "WAIT"
 #define STAGE_RUNNER_OLED_TEXT_SIZE 24U
 #define STAGE_RUNNER_DATA_TEXT_SIZE 24U
+#define STAGE_RUNNER_TRACK_MIN_AVG_MMPS 170.0f
+#define STAGE_RUNNER_TRACK_LOW_SPEED_DURATION_MS 1000U
+#define STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS 100U
 
 typedef enum StageRunner_MaixCamResult {
 	StageRunnerMaixCamIgnored = 0,
@@ -56,6 +59,97 @@ static const StageCommand *command = NULL;
 static int BaseSpeed = STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS;
 static int RoundSpeed = STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS;
 static int MaixCamPendingStage = -1;
+static int TrackingMonitorStageIndex = -1;
+static bool TrackingLowSpeedActive = false;
+static uint32_t TrackingLowSpeedStartTime = 0U;
+static uint32_t lastTrackingDisplayTime = 0U;
+
+static void StageRunner_ShowTrackingTelemetry(float targetLeft,
+										  float targetRight, float irr,
+										  float measuredLeft,
+										  float measuredRight,
+										  float averageSpeed, bool stopped) {
+	char line[STAGE_RUNNER_OLED_TEXT_SIZE];
+
+	snprintf(line, sizeof(line), "T:%d,%d", (int)targetLeft,
+			 (int)targetRight);
+	Display_ShowString(0, 0, line);
+	snprintf(line, sizeof(line), "IRR:%.1f", irr);
+	Display_ShowString(1, 0, line);
+	snprintf(line, sizeof(line), "V:%d,%d", (int)measuredLeft,
+			 (int)measuredRight);
+	Display_ShowString(2, 0, line);
+	snprintf(line, sizeof(line), "%s AVG:%d", stopped ? "STOP" : "RUN",
+			 (int)averageSpeed);
+	Display_ShowString(3, 0, line);
+}
+
+static void StageRunner_SyncTrackingMonitor(uint32_t nowTime) {
+	if (TrackingMonitorStageIndex == StageIndex) {
+		return;
+	}
+
+	TrackingMonitorStageIndex = StageIndex;
+	TrackingLowSpeedActive = false;
+	TrackingLowSpeedStartTime = 0U;
+	lastTrackingDisplayTime =
+		nowTime - STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
+}
+
+/*
+ * 循迹阶段低速保护。平均速度低于阈值时开始计时，期间任何一次恢复到阈值
+ * 或以上都会清零计时；只有连续低速满 1 秒才刹车并锁定故障显示。
+ */
+static bool StageRunner_HandleTrackingSpeed(uint32_t nowTime, float irr) {
+	NewMotor_SpeedCtrl *motor = MotorRuntime_GetController();
+	float targetLeft;
+	float targetRight;
+	float measuredLeft;
+	float measuredRight;
+	float averageSpeed;
+	bool shouldDisplay;
+
+	if (motor == NULL) {
+		return false;
+	}
+
+	targetLeft = motor->target_left_mmps;
+	targetRight = motor->target_right_mmps;
+	NewMotorSpeedCtrl_GetMeasuredWheelMmps(motor, &measuredLeft,
+										 &measuredRight);
+	averageSpeed = NewMotor_LeftRightToLinearSpeedMmps(measuredLeft,
+													 measuredRight);
+
+	if (averageSpeed < STAGE_RUNNER_TRACK_MIN_AVG_MMPS) {
+		if (!TrackingLowSpeedActive) {
+			TrackingLowSpeedActive = true;
+			TrackingLowSpeedStartTime = nowTime;
+		} else if (getTimeMs(nowTime, TrackingLowSpeedStartTime) >=
+				   STAGE_RUNNER_TRACK_LOW_SPEED_DURATION_MS) {
+			StageRunner_ShowTrackingTelemetry(
+				targetLeft, targetRight, irr, measuredLeft, measuredRight,
+				averageSpeed, true);
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			return true;
+		}
+	} else {
+		TrackingLowSpeedActive = false;
+		TrackingLowSpeedStartTime = 0U;
+	}
+
+	shouldDisplay =
+		getTimeMs(nowTime, lastTrackingDisplayTime) >=
+		STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
+	if (shouldDisplay) {
+		lastTrackingDisplayTime = nowTime;
+		StageRunner_ShowTrackingTelemetry(
+			targetLeft, targetRight, irr, measuredLeft, measuredRight,
+			averageSpeed, false);
+	}
+
+	return false;
+}
 
 static void StageRunner_SendMaixCamWaitNotify(void) {
 	uint8_t notify[STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE];
@@ -175,6 +269,10 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	StageIndex = 0;
 	StageFlag = 0;
 	MaixCamPendingStage = -1;
+	TrackingMonitorStageIndex = -1;
+	TrackingLowSpeedActive = false;
+	TrackingLowSpeedStartTime = 0U;
+	lastTrackingDisplayTime = 0U;
 	distence[0] = 0.0f;
 	distence[1] = 0.0f;
 	IMUData.yaw = 0.0f;
@@ -209,6 +307,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 	stage = stageCommand->type;
 	stageData = stageCommand->data;
 	numData = stageCommand->numData;
+	StageRunner_SyncTrackingMonitor(nowTime);
 
 	// //-----------灰度模块测试显示----------
 	// {
@@ -275,6 +374,9 @@ bool StageRunner_Update(uint32_t nowTime) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
 			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
+			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+				shouldStopRun = true;
+			}
 
 		} else {
 			StageFlag = 0;
@@ -314,6 +416,9 @@ bool StageRunner_Update(uint32_t nowTime) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
 			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
+			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+				shouldStopRun = true;
+			}
 
 		} else {
 			StageFlag = 0;
@@ -353,6 +458,10 @@ bool StageRunner_Update(uint32_t nowTime) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
 			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
+			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+				shouldStopRun = true;
+				break;
+			}
 		}
 		if (StageFlag > 5) {
 			StageFlag = 0;
