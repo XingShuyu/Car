@@ -92,29 +92,36 @@ void Grayscale12_LineController_Reset(Grayscale12_LineController_t *controller)
 
 bool Grayscale12_NormalizeRaw(uint16_t raw12, float *position)
 {
+    static const float channelWeights[GRAYSCALE12_CHANNELS] = {
+        7.0f, 5.0f, 2.0f, 1.0f,
+        0.7f, 0.5f, 0.5f, 0.7f,
+        1.0f, 2.0f, 5.0f, 7.0f
+    };
+
     float weightedSum = 0.0f;
-    uint8_t activeCount = 0u;
+    float totalWeight = 0.0f;
 
     if (position == NULL) {
         return false;
     }
 
     raw12 &= GRAYSCALE12_RAW_MASK;
+
     for (uint8_t i = 0u; i < GRAYSCALE12_CHANNELS; i++) {
         if ((raw12 & ((uint16_t)1u << i)) != 0u) {
             float channelPosition = -1.0f +
                 (2.0f * (float)i / (float)(GRAYSCALE12_CHANNELS - 1u));
 
-            weightedSum += channelPosition;
-            activeCount++;
+            weightedSum += channelPosition * channelWeights[i];
+            totalWeight += channelWeights[i];
         }
     }
 
-    if (activeCount == 0u) {
+    if (totalWeight <= 0.0f) {
         return false;
     }
 
-    *position = weightedSum / (float)activeCount;
+    *position = weightedSum / totalWeight;
     return true;
 }
 
@@ -127,6 +134,16 @@ float Grayscale12_LineFromRaw(Grayscale12_LineController_t *controller,
         !Grayscale12_NormalizeRaw(raw12, &position)) {
         if (lineDetected != NULL) {
             *lineDetected = false;
+        }
+
+        /*
+         * 丢线期间保持最近一次转向输出以继续搜线，但丢弃微分历史。
+         * 否则重新检测到黑线时，会把脱线前后的位置差误当作一个控制
+         * 周期内的突变，产生过大的 D 项。
+         */
+        if (controller != NULL) {
+            controller->previousError = 0.0f;
+            controller->hasPreviousError = false;
         }
         return (controller != NULL) ? controller->lastOutput : 0.0f;
     }

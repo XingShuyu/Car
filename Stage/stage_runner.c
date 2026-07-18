@@ -210,24 +210,24 @@ bool StageRunner_Update(uint32_t nowTime) {
 	stageData = stageCommand->data;
 	numData = stageCommand->numData;
 
-	//-----------灰度模块测试显示----------
-	{
-		char temp[24];
-		const char *driverName =
-			(Grayscale_GetActiveDriver() == GrayscaleDriver12) ? "G12" : "G8";
+	// //-----------灰度模块测试显示----------
+	// {
+	// 	char temp[24];
+	// 	const char *driverName =
+	// 		(Grayscale_GetActiveDriver() == GrayscaleDriver12) ? "G12" : "G8";
 
-		Grayscale_Sensor_Read_All(grayscale);
-		snprintf(temp, sizeof(temp), "%s:%d %d %d %d %d %d", driverName,
-				 grayscale[0], grayscale[1], grayscale[2], grayscale[3],
-				 grayscale[4], grayscale[5]);
-		Display_ShowString(0, 0, temp);
-		snprintf(temp, sizeof(temp), "%d %d %d %d %d %d", grayscale[6],
-				 grayscale[7], grayscale[8], grayscale[9], grayscale[10],
-				 grayscale[11]);
-		Display_ShowString(1, 0, temp);
-		snprintf(temp, sizeof(temp), "Read:%d", Grayscale_LastReadOk());
-		Display_ShowString(2, 0, temp);
-	}
+	// 	Grayscale_Sensor_Read_All(grayscale);
+	// 	snprintf(temp, sizeof(temp), "%s:%d %d %d %d %d %d", driverName,
+	// 			 grayscale[0], grayscale[1], grayscale[2], grayscale[3],
+	// 			 grayscale[4], grayscale[5]);
+	// 	Display_ShowString(0, 0, temp);
+	// 	snprintf(temp, sizeof(temp), "%d %d %d %d %d %d", grayscale[6],
+	// 			 grayscale[7], grayscale[8], grayscale[9], grayscale[10],
+	// 			 grayscale[11]);
+	// 	Display_ShowString(1, 0, temp);
+	// 	snprintf(temp, sizeof(temp), "Read:%d", Grayscale_LastReadOk());
+	// 	Display_ShowString(2, 0, temp);
+	// }
 
 	switch (stage) {
 	case StageEnd: {
@@ -463,8 +463,8 @@ bool StageRunner_Update(uint32_t nowTime) {
 		// 	StageFlag = 0;
 		// 	shouldStopRun = true;
 		// }
-		// NewMotorSpeedCtrl_SetTargetWheelMmps(&motor, 0, 0);
-		// NewMotor_Stop(NEWMOTOR_STOP_COAST);
+		MotorRuntime_SetTargetWheelMmps(0, 0);
+		MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 		break;
 	}
 	case StageTurn: {

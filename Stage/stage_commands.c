@@ -20,6 +20,8 @@ static const StageCommand command0[] = {
 	// STAGE_CMD_NUM(StageForward, 330),
 	// STAGE_CMD_NUM(StageTurn, 90.0),
 	// STAGE_CMD_NUM(StageForward, 900),
+	STAGE_CMD(StageCross),
+	STAGE_CMD(StageBizz),
 	STAGE_CMD(StageStop),
 };
 

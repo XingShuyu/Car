@@ -8,9 +8,9 @@
 #include "GrayScale/GrayScale12/grayscale12_control.h"
 #include <stddef.h>
 
-#define GRAYSCALE12_COMPAT_KP        (1070.0f)
+#define GRAYSCALE12_COMPAT_KP        (8000.0f)
 #define GRAYSCALE12_COMPAT_KI        (0.0f)
-#define GRAYSCALE12_COMPAT_KD        (0.0f)
+#define GRAYSCALE12_COMPAT_KD        (100.0f)
 #define GRAYSCALE12_COMPAT_I_MAX     (100000.0f)
 #define GRAYSCALE12_COMPAT_PERIOD_MS (10.0f)
 #define GRAYSCALE12_COMPAT_IRR_SCALE (1.5f)
