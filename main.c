@@ -1,7 +1,6 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
-#include "Communication/bluetooth_serial.h"
 #include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
@@ -33,7 +32,7 @@
  * 立即从 A0 端口回复 "PONG"。该测试会取走 DL-LN33 接收队列中的帧，
  * 因此接入正式无线业务前请改为 0。
  */
-#define DL_LN33_PINGPONG_TEST_ENABLE 1U
+#define DL_LN33_PINGPONG_TEST_ENABLE 0U
 #define DL_LN33_PINGPONG_PORT        0xA0U
 #define DL_LN33_PINGPONG_PEER        0x0001U
 
@@ -97,7 +96,6 @@ int main(void) {
 	//---------------中断使能----------------
 
 	MaixCamSerial_Init();
-	BluetoothSerial_Init();
 	DLLN33_Init();
 	BoardIrq_Enable();
 	USART_Init(); // 使能UART中断（接收依赖此步骤）

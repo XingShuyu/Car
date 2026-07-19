@@ -4,7 +4,11 @@
 #include <stddef.h>
 #include <stdint.h>
 
-typedef enum Stage {
+/*
+ * 旧循迹命令的阶段类型。保留 Stage 这个 typedef，避免影响已有命令表；
+ * 枚举 tag 改为 StageType，为 DL-LN33 阶段机预留 struct Stage tag。
+ */
+typedef enum StageType {
 	StageEnd = 0,
 	StageRush = 1,
 	StageRight = 2,
