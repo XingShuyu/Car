@@ -171,8 +171,9 @@ static void StageRunner_SendMaixCamStageNotify(const uint8_t *data,
 	uint16_t notifyLength;
 
 	if (MaixCamProtocol_BuildFrame(
-			notify, sizeof(notify), MAIXCAM_PROTOCOL_ADDR_CAR,
-			MaixCamProtocolType_Stage, data, dataLength, &notifyLength)) {
+			notify, sizeof(notify), MAIXCAM_PROTOCOL_ADDR_EMM,
+			MaixCamProtocolType_Stage, data, dataLength,
+			&notifyLength)) {
 		MaixCamSerial_SendBytes(notify, notifyLength);
 	}
 }
