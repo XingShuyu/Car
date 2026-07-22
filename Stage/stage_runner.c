@@ -8,6 +8,7 @@
 #include "BasicMicroLib/getTime.h"
 #include "Communication/maixcam_protocol.h"
 #include "Communication/maixcam_serial.h"
+#include "Drivers/button_select.h"
 #include "Drivers/buzzer.h"
 #include "GrayScale/Grayscale_Scan.h"
 #include "GrayScale/grayscale_sensor.h"
@@ -16,7 +17,7 @@
 #include "OLED/display.h"
 
 #define STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS 300
-#define STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS 150
+#define STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS 200
 #define STAGE_RUNNER_UPDATE_INTERVAL_MS 10U
 #define STAGE_RUNNER_MAIXCAM_FRAME_SIZE 32U
 #define STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE 32U
@@ -210,6 +211,7 @@ StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 		return StageRunnerMaixCamIgnored;
 	}
 
+	Display_ShowString(0, 0, "Maix Sending");
 	switch (packet.type) {
 	case MaixCamProtocolType_Beep:
 		Buzzer_Beep();
@@ -253,6 +255,7 @@ StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 
 		StageRunner_CopyText(dataText, sizeof(dataText), packet.data,
 							 packet.dataLength);
+		Display_ShowString(2, 0, dataText);
 		printf("maix:%s\r\n", dataText);
 		return StageRunnerMaixCamHandled;
 	}
@@ -602,7 +605,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 			StageIndex++;
 		} else {
 			float error =
-				fminf((-IMUData.yaw + numData) / numData + 0.2f, 1.0f);
+				fminf((-IMUData.yaw + numData) / numData + 0.3f, 1.0f);
 			char temp[21];
 			sprintf(temp, "angel:%.2f", IMUData.yaw);
 			Display_ShowString(3, 0, temp);
@@ -690,12 +693,41 @@ bool StageRunner_Update(uint32_t nowTime) {
 			maixResult =
 				StageRunner_ExecuteMaixCamFrame(frame, frameLength, nowTime);
 			if (maixResult == StageRunnerMaixCamContinue) {
+				Display_ShowString(0, 0, "Maix Send Conti");
 				StageFlag = 0;
 				lastStageTime = nowTime;
 			} else if (maixResult == StageRunnerMaixCamStop) {
+				Display_ShowString(0, 0, "Maix Send Stop");
 				StageFlag = 0;
 				MaixCamPendingStage = -1;
 				shouldStopRun = true;
+			}
+		}
+		break;
+	}
+	case StageButtonContinue: {
+		ButtonSelect_Event event;
+
+		/*
+		 * 此阶段用于需要人工确认后才继续的路线段。进入阶段时先刹停并
+		 * 丢弃之前阶段遗留的按键事件，避免刚进入就被旧事件跳过。
+		 */
+		if (StageFlag == 0) {
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			ButtonSelect_ResetEvents();
+			Display_ShowString(0, 0, "Press B2 Continue");
+			StageFlag = 1;
+		}
+
+		/* B1 事件在此阶段被消费但不改变流程；仅 B2（Start）可继续。 */
+		while ((event = ButtonSelect_TakeEvent()) != ButtonSelectEventNone) {
+			if (event == ButtonSelectEventStart) {
+				Display_ShowString(0, 0, "Continue...");
+				StageFlag = 0;
+				StageIndex++;
+				lastStageTime = nowTime;
+				break;
 			}
 		}
 		break;

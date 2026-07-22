@@ -40,7 +40,7 @@ Main/
 │
 ├── Drivers/                        # 板级中断分发与简单外设
 │   ├── board_isr.h / .c            # GROUP1/UART ISR入口与分发
-│   ├── button_select.h / .c        # 按键路线/Goal选择计数
+│   ├── button_select.h / .c        # 按键 Next/Start 事件与防抖
 │   └── buzzer.h / .c               # 蜂鸣器三声提示
 │
 ├── Communication/                  # 应用层串口接收缓冲
@@ -81,7 +81,7 @@ Main/
 | 区域 | 功能 |
 |------|------|
 | 初始化段 | `SYSCFG_DL_init()`、通信/中断/OLED/计时器/云台/电机/IMU初始化 |
-| 启动选择 | `ButtonSelect` 在开机窗口内选择 `commandList[index]`；当 `index=3` 时再选择 `Goal` |
+| 启动选择 | 常驻两按键菜单：PB23切换地图/目标点候选项，PB26立即启动；地图4展开为4个Goal候选项 |
 | 主循环 | `USART_PollTx()`、`MaixCamSerial_Poll()`、`MotorRuntime_Update()`、`StageRunner_Update()` |
 
 当前基础速度配置在 `main.c` 的 `stageConfig`：
@@ -151,7 +151,7 @@ main()
   ├── Emm_Init(1/2)
   ├── MotorRuntime_Init()
   ├── IMU_Init()
-  ├── ButtonSelect选择commandList与Goal
+  ├── 启动菜单读取ButtonSelect事件并选择commandList与Goal
   ├── StageRunner_Init(command, goal, stageConfig)
   └── while (1)
        ├── nowTime = getNowMs()

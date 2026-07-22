@@ -49,6 +49,28 @@ static const StageRunner_Config stageConfig = {
 	.round_speed_mmps = 150,
 };
 
+typedef struct AppRouteOption {
+	uint8_t commandIndex;
+	int goal;
+} AppRouteOption;
+
+/*
+ * 菜单显示的地图编号从 1 开始；goal 仍保持阶段机原有的 0~3 语义。
+ * 地图 4 的四个目标点展开为独立候选项，使两按键即可完成选择和启动。
+ */
+static const AppRouteOption appRouteOptions[] = {
+	{0U, 0},
+	{1U, 0},
+	{2U, 0},
+	{3U, 0},
+	{3U, 1},
+	{3U, 2},
+	{3U, 3},
+};
+
+#define APP_ROUTE_OPTION_COUNT \
+	((uint8_t)(sizeof(appRouteOptions) / sizeof(appRouteOptions[0])))
+
 #if DL_LN33_PINGPONG_TEST_ENABLE
 static void App_DLN33PingPongPoll(void)
 {
@@ -71,22 +93,62 @@ static void App_DLN33PingPongPoll(void)
 }
 #endif
 
-static uint8_t App_SelectIndex(uint32_t wait_ms, const char *label) {
-	ButtonSelect_Reset();
-	startTime = getNowMs();
-	while (getTimeMs(getNowMs(), startTime) < wait_ms) {
-		char str[12];
-		uint8_t index = ButtonSelect_GetIndex();
-		snprintf(str, sizeof(str), "%s: %d", label, index);
-		Display_ShowString(0, 0, str);
-	}
+static void App_ShowRouteMenu(uint8_t optionIndex)
+{
+	const AppRouteOption *option = &appRouteOptions[optionIndex];
+	char line[21];
 
-	return ButtonSelect_GetIndex();
+	Display_Clear();
+	snprintf(line, sizeof(line), "MAP SELECT %u/%u",
+			 (unsigned int)(optionIndex + 1U),
+			 (unsigned int)APP_ROUTE_OPTION_COUNT);
+	Display_ShowString(0, 0, line);
+
+	if (option->commandIndex == 3U) {
+		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
+	} else {
+		snprintf(line, sizeof(line), "MAP %u",
+			 (unsigned int)(option->commandIndex + 1U));
+	}
+	Display_ShowString(2, 0, line);
+	Display_ShowString(5, 0, "B1 NEXT");
+	Display_ShowString(6, 0, "B2 START");
+}
+
+static const AppRouteOption *App_SelectRoute(void)
+{
+	uint8_t optionIndex = 0U;
+
+	ButtonSelect_ResetEvents();
+	App_ShowRouteMenu(optionIndex);
+
+	while (true) {
+		ButtonSelect_Event event = ButtonSelect_TakeEvent();
+
+		if (event == ButtonSelectEventNext) {
+			optionIndex++;
+			if (optionIndex >= APP_ROUTE_OPTION_COUNT) {
+				optionIndex = 0U;
+			}
+			App_ShowRouteMenu(optionIndex);
+		} else if (event == ButtonSelectEventStart) {
+			Display_Clear();
+			Display_ShowString(2, 0, "STARTING...");
+			return &appRouteOptions[optionIndex];
+		}
+
+		/* 启动菜单停留期间继续维护通信接收，不执行路线或电机控制。 */
+		USART_PollTx();
+		MaixCamSerial_Poll();
+		DLLN33_Poll();
+#if DL_LN33_PINGPONG_TEST_ENABLE
+		App_DLN33PingPongPoll();
+#endif
+	}
 }
 
 int main(void) {
-	uint8_t textIndex;
-	int goal = 0;
+	const AppRouteOption *routeOption;
 	const StageCommand *command;
 
 	//--------------------------------------
@@ -146,21 +208,20 @@ int main(void) {
 		delay_ms(1000);
 	}
 
-	// 获取启动时间tick
+	/* 选择期间确保车辆不会因初始化残留的目标值而移动。 */
+	MotorRuntime_SetTargetWheelMmps(0, 0);
+	MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
 	delay_ms(2000);
-	Display_Clear();
+	routeOption = App_SelectRoute();
+	command = commandList[routeOption->commandIndex];
+
+	/* 选择等待时间不应影响出发时的航向零点。 */
 	IMU_ZeroYaw();
-
-	textIndex = App_SelectIndex(1000, "set");
-	command = commandList[textIndex];
-	if (textIndex == 3) {
-		goal = App_SelectIndex(3000, "goal");
-	}
-
 	startTime = getNowMs();
 	Buzzer_Beep();
-	StageRunner_Init(command, goal, &stageConfig);
+	StageRunner_Init(command, routeOption->goal, &stageConfig);
 	MotorRuntime_SetTargetWheelMmps(stageConfig.base_speed_mmps,
 									stageConfig.base_speed_mmps);
 

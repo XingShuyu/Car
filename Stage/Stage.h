@@ -26,7 +26,9 @@ typedef enum StageType {
 	StageSkip = 14,
 	StageStandUp = 15,
 	StageForward = 16,
-	StageMaixCamCommand = 17
+	StageMaixCamCommand = 17,
+	/* 刹停并等待 PB26（B2/Start）按下后再执行下一条命令。 */
+	StageButtonContinue = 18
 } Stage;
 
 typedef struct StageCommand {
