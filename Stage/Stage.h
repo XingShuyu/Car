@@ -4,6 +4,8 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "Arm/arm_motion_state.h"
+
 /*
  * 旧循迹命令的阶段类型。保留 Stage 这个 typedef，避免影响已有命令表；
  * 枚举 tag 改为 StageType，为 DL-LN33 阶段机预留 struct Stage tag。
@@ -28,7 +30,9 @@ typedef enum StageType {
 	StageForward = 16,
 	StageMaixCamCommand = 17,
 	/* 刹停并等待 PB26（B2/Start）按下后再执行下一条命令。 */
-	StageButtonContinue = 18
+	StageButtonContinue = 18,
+	/* 六轴按 PWM 动作表逐列运动；完成后自动执行下一条阶段命令。 */
+	StageArmMotion = 19
 } Stage;
 
 typedef struct StageCommand {
@@ -47,13 +51,36 @@ typedef struct StageMaixCamCommandData {
 	uint16_t length;
 } StageMaixCamCommandData;
 
+typedef struct StageArmMotionData {
+	ArmMotionState_Sequence sequence;
+} StageArmMotionData;
+
+/*
+ * 使用示例（每一行是一个动作，第二维固定为六个舵机 ID）：
+ *
+ * static const uint16_t armDemoPwm[][JIBOT_SERVO_COUNT] = {
+ *     {1500U, 1500U, 1500U, 1500U, 1500U, 1500U}, // 动作 0，ID 0~5
+ *     {1600U, 1500U, 1400U, 1500U, 1500U, 1800U}, // 动作 1
+ *     {1700U, 1500U, 1300U, 1500U, 1500U, 1500U}, // 动作 2
+ * };
+ * static const StageArmMotionData armDemoData = {
+ *     ARM_MOTION_SEQUENCE(armDemoPwm),
+ * };
+ * static const StageCommand command[] = {
+ *     STAGE_CMD_ARM_MOTION(&armDemoData),
+ *     STAGE_CMD(StageEnd),
+ * };
+ */
+
 #define STAGE_CMD(stage_type) {(stage_type), NULL, 0.0}
 #define STAGE_CMD_DATA(stage_type, data_ptr) {(stage_type), (data_ptr), 0.0}
 #define STAGE_CMD_NUM(stage_type, num_data) {(stage_type), NULL, (num_data)}
 #define STAGE_CMD_MAIXCAM(data_ptr, data_len) \
 	{StageMaixCamCommand, (&(StageMaixCamCommandData){(data_ptr), (data_len)}), 0.0}
+#define STAGE_CMD_ARM_MOTION(data_ptr) \
+	{StageArmMotion, (data_ptr), 0.0}
 
-#define STAGE_COMMAND_LIST_COUNT 4U
+#define STAGE_COMMAND_LIST_COUNT 5U
 
 extern const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT];
 

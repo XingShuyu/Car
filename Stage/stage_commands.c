@@ -1,5 +1,21 @@
 #include "Stage/Stage.h"
 
+static const uint16_t armDemoPwm[][JIBOT_SERVO_COUNT] = {
+	{1695,1329,1651,1283,1471,1521},
+	{1695,1229,1851,783,1471,1521},
+	{1695,1212,1854,784,1471,1900},
+	{1697,1640,1869,1282,1518,1900},
+	{2038,1689,2028,1406,1518,1900},
+	{2035,1497,1948,904,1518,1900},
+	{2038,1392,1957,930,1518,1900},
+	{2035,1425,1956,930,1566,1500},
+	{1500,1500,1500,1500,1500,1500},
+};
+
+static const StageArmMotionData armDemoData = {
+	ARM_MOTION_SEQUENCE(armDemoPwm),
+};
+
 static const StageCommand command0[] = {
 	STAGE_CMD_NUM(StageForward, 500),
 	STAGE_CMD_NUM(StageTurn, 90.0),
@@ -136,9 +152,15 @@ static const StageCommand command3[] = {
 	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x04U, 0x02U}), 2U),
 };
 
+static const StageCommand command4[] = {
+	STAGE_CMD_ARM_MOTION(&armDemoData),
+	STAGE_CMD(StageEnd),
+};
+
 const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT] = {
 	command0,
 	command1,
 	command2,
 	command3,
+	command4,
 };

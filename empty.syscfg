@@ -289,13 +289,10 @@ UART3.rxPinConfig.onlyInternalResistor = scripting.forceWrite(false);
 UART3.rxPinConfig.passedPeripheralType = scripting.forceWrite("Digital");
 UART3.rxPinConfig.$name                = "ti_driverlib_gpio_GPIOPinGeneric13";
 
-/* DL-LN33 自组网模块：PB15 -> 模块 RX，PB16 <- 模块 TX。 */
-UART4.$name                            = "Zigbee";
+/* Jibot 总线：PB15/TX -> 控制器 RX，PB16/RX <- 控制器 TX。 */
+UART4.$name                            = "JibotArm";
 UART4.enableFIFO                       = true;
-UART4.rxFifoThreshold                  = "DL_UART_RX_FIFO_LEVEL_ONE_ENTRY";
 UART4.txFifoThreshold                  = "DL_UART_TX_FIFO_LEVEL_ONE_ENTRY";
-UART4.rxTimeoutValue                   = 15;
-UART4.enabledInterrupts                = ["RX","RX_TIMEOUT_ERROR","OVERRUN_ERROR","FRAMING_ERROR"];
 UART4.targetBaudRate                   = 115200;
 UART4.peripheral.$assign               = "UART2";
 UART4.peripheral.rxPin.$assign         = "PB16";

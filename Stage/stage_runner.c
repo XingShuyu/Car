@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
 #include "Communication/maixcam_protocol.h"
@@ -64,6 +65,7 @@ static int TrackingMonitorStageIndex = -1;
 static bool TrackingLowSpeedActive = false;
 static uint32_t TrackingLowSpeedStartTime = 0U;
 static uint32_t lastTrackingDisplayTime = 0U;
+static ArmMotionState armMotionState;
 
 static void StageRunner_ShowTrackingTelemetry(float targetLeft,
 										  float targetRight, float irr,
@@ -277,6 +279,7 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	TrackingLowSpeedActive = false;
 	TrackingLowSpeedStartTime = 0U;
 	lastTrackingDisplayTime = 0U;
+	ArmMotionState_Reset(&armMotionState);
 	distence[0] = 0.0f;
 	distence[1] = 0.0f;
 	IMUData.yaw = 0.0f;
@@ -729,6 +732,35 @@ bool StageRunner_Update(uint32_t nowTime) {
 				lastStageTime = nowTime;
 				break;
 			}
+		}
+		break;
+	}
+	case StageArmMotion: {
+		const StageArmMotionData *armData =
+			(const StageArmMotionData *)stageData;
+		ArmMotionState_Status armStatus;
+
+		if (StageFlag == 0) {
+			/* 机械臂动作期间保持小车制动，防止移动造成机械臂碰撞。 */
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			if ((armData == NULL) ||
+				!ArmMotionState_Start(&armMotionState, &armData->sequence,
+									  nowTime)) {
+				Display_ShowString(0, 0, "ARM MOTION FAIL");
+				shouldStopRun = true;
+				break;
+			}
+			StageFlag = 1;
+		}
+
+		armStatus = ArmMotionState_Update(&armMotionState, nowTime);
+		if (armStatus == ArmMotionStateCompleted) {
+			StageFlag = 0;
+			StageIndex++;
+		} else if (armStatus == ArmMotionStateFailed) {
+			Display_ShowString(0, 0, "ARM MOTION FAIL");
+			shouldStopRun = true;
 		}
 		break;
 	}

@@ -12,7 +12,7 @@ SDK位置`D:\ElecCompetation\TI\Softwares\MSPM0_SDK`
 ## 1. 项目概览
 
 - **硬件平台**: TI MSPM0G3507 (LQFP-64, ARM Cortex-M0+)
-- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信
+- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信；UART2 额外接入 Jibot 六轴机械臂的基础单轴位置控制。
 - **开发环境**: TI CCS (Code Composer Studio), SysConfig 自动生成 `ti_msp_dl_config.c/h`
 - **SDK**: mspm0_sdk@2.10.00.04
 - **编译链**: tiarmclang (LLVM) + gmake
@@ -25,6 +25,11 @@ Main/
 ├── main.c                          # 程序入口：初始化 + 路线选择 + 主循环调度
 ├── 引脚定义.md                      # 完整引脚映射表
 ├── AGENT.md                        # 本文件
+│
+├── Arm/                            # Jibot 机械臂基础驱动
+│   ├── jibot_servo.h / .c           # UART2 位置帧发送、中心相对角到 PWM 换算
+│   ├── arm_control.h / .c           # 六轴 PWM 状态读取、菜单手动示教测试
+│   └── arm_motion_state.h / .c      # 六轴二维 PWM 动作表的非阻塞状态机
 │
 ├── Stage/                          # 比赛阶段与阶段状态机
 │   ├── Stage.h                     # 阶段枚举、命令结构体、commandList声明
@@ -80,7 +85,7 @@ Main/
 
 | 区域 | 功能 |
 |------|------|
-| 初始化段 | `SYSCFG_DL_init()`、通信/中断/OLED/计时器/云台/电机/IMU初始化 |
+| 初始化段 | `SYSCFG_DL_init()`、通信/中断/OLED/计时器/云台/电机/IMU初始化；计时器初始化后发送一次 Jibot 夹爪 `+5°`、1000 ms 的上电小幅测试命令 |
 | 启动选择 | 常驻两按键菜单：PB23切换地图/目标点候选项，PB26立即启动；地图4展开为4个Goal候选项 |
 | 主循环 | `USART_PollTx()`、`MaixCamSerial_Poll()`、`MotorRuntime_Update()`、`StageRunner_Update()` |
 
@@ -90,7 +95,7 @@ Main/
 
 ### 3.2 `Stage/`
 
-`Stage/Stage.h` 定义阶段枚举与命令结构，`Stage/stage_commands.c` 定义4套命令序列：
+`Stage/Stage.h` 定义阶段枚举与命令结构，`Stage/stage_commands.c` 定义5套命令序列：
 
 ```c
 extern const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT];
@@ -196,7 +201,27 @@ main()
 
 SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧 `UART0/UART3` 是UART外设实例号；UART0 同时启用TX DMA和RX DMA，所以会占用两个DMA channel。`UART3` 不是 `DMA_CH3`，它只是MaixCam所用的UART外设编号。
 
-### 5.4 WDD35D4与超声波
+### 5.4 Jibot 机械臂基础位置控制 (`Arm/`)
+
+- `Arm/jibot_servo.h` 提供唯一的基础控制接口：
+
+  ```c
+  bool JibotServo_SetAngle(uint8_t id, float angle_deg, uint16_t time_ms);
+  ```
+
+- 有效舵机 ID 为 `000` 至 `005`，对应从下到上的六个关节；`JIBOT_SERVO_ID_GRIPPER` 为 `005`。
+- 接口采用中心相对角：`0° = PWM 1500`，允许范围为 `-135°` 至 `+135°`；换算公式为 `round(1500 + angle_deg * 2000 / 270)`。正角只表示 PWM 增大，真实机械正方向、零位和限位必须在实机上逐关节标定。
+- `time_ms` 有效范围为 `0` 至 `9999` ms。参数无效时函数返回 `false`，且不会发送数据。
+- 发送帧格式为 `#dddPppppTtttt!`，例如夹爪 `+5°`、1000 ms 发送 `#005P1537T1000!`。
+- `JibotServo_ReleaseTorque(id)` 发送 `#dddPULK!` 释放扭力；`JibotServo_RestoreTorque(id)` 发送 `#dddPULR!` 恢复扭力。两者只确认命令已发送，不等待协议 `#OK!`；释放前必须支撑好机械臂。
+- `JibotServo_ReadPosition(id, &pwm, timeout_ms)` 发送 `#dddPRAD!`，在指定时间内轮询 UART2，匹配 `#dddPpppp!` 应答后返回原始 PWM 位置。此接口阻塞主循环，必须在 `TimeBase_Init()` 后调用，建议超时 20~100 ms。
+- 当前版本不包含非阻塞接收队列、插补轨迹、软限位、碰撞保护或逆运动学。
+- `ArmControl_PwmState` 保存六轴原始 PWM 与有效位图；`ArmControl_ReadAllPwm()` 依次读取 ID 0~5。地图选择中的 `ARM TEACH TEST` 会在进入时释放六轴扭力：B2 依次执行“读取 PWM 并恢复扭力 / 再次释放扭力”，B1 退出并恢复扭力。
+- `ArmMotionState` 使用 `uint16_t pwm[动作数][6]` 的二维动作表：每行是六轴目标 PWM。每行六轴位置命令会打包为 `{G0000#000P...!#001P...!...#005P...!}` 后一次发送；任意两条完整 Jibot 指令至少间隔 10 ms，并每 500 ms 读取六轴当前位置；任一轴未进入可配置 PWM 误差范围或查询失败时，重新发送当前行组位置命令，六轴全部到位后才执行下一行。
+- UART2 的 SysConfig 实例名为 `JibotArm`：`PB15` 为 MSPM0 TX（接机械臂控制器 RX）、`PB16` 为 MSPM0 RX（接控制器 TX），`115200 8N1`、无流控。控制器与 MSPM0 必须共地。
+- UART2 当前专供 Jibot，不再支持 DL-LN33。`Communication/cc2530_zigbee.c` 仅作为保留的历史源码编译，运行时不得初始化或调用其 API；若要恢复 DL-LN33，必须先在 SysConfig 和中断分发中重新规划 UART2。
+
+### 5.5 WDD35D4与超声波
 
 - `wdd35d4/` 驱动保留，`empty.syscfg` 中仍有 `WDD35D4_ADC`：`PB17` / `ADC1` / `channel 4`。
 - 当前 `main.c` 和 `StageRunner` 不初始化、不读取 WDD35D4。
@@ -206,6 +231,9 @@ SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧
 
 - `ti_msp_dl_config.c/h` 由 SysConfig 自动生成，不应手动修改。
 - `Debug/*.mk` 是 CCS managed build 自动生成文件，不作为源码维护；新增 `.c` 文件后通过 CCS Build 重新生成。
+- 不要在工程目录中保存临时编译目录、`.o`、`.d` 或额外的 `main.o` 等对象文件。CCS 的递归扫描可能把它们加入链接，引发重复定义；临时构建产物应放在工程目录外。
+- 修改 `empty.syscfg` 后，必须让 CCS/SysConfig 重新生成 `Debug/ti_msp_dl_config.*` 和构建清单；不要手改这些生成文件。
+- 使用 Jibot 前，确保机械臂处于无障碍位置。基础驱动没有反馈和安全限位，首次调试应从小角度、长时间开始。
 - 新模块必须放在对应文件夹中，避免继续把业务逻辑堆回 `main.c`。
 - 头文件 include 优先使用项目根路径形式，例如 `Stage/Stage.h`、`Motor/motor_runtime.h`。
 - 保留历史注释和实验代码；若注释过期，优先修正说明，不直接删除。

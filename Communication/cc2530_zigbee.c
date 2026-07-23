@@ -9,6 +9,12 @@
 
 #include <stddef.h>
 
+/*
+ * DL-LN33 驱动源码保留以便后续恢复，但当前运行时 UART2 专供 Jibot。
+ * 本兼容别名只保证旧源码可随工程编译，main.c 不会初始化或调用本驱动。
+ */
+#define Zigbee_INST JibotArm_INST
+
 #define DLLN33_SOF                       0xFEU
 #define DLLN33_EOF                       0xFFU
 #define DLLN33_ESCAPE_FE                 0xFCU
