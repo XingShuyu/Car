@@ -23,7 +23,7 @@ enum {
 #define JIBOT_SERVO_MAX_TIME_MS   (9999U)
 
 /** 任意两条完整 Jibot 指令之间的最小发送间隔。 */
-#define JIBOT_SERVO_COMMAND_INTERVAL_MS (10U)
+#define JIBOT_SERVO_COMMAND_INTERVAL_MS (1U)
 
 /**
  * @brief 按协议原始 PWM 值控制一个 Jibot 总线舵机。
