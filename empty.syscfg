@@ -124,11 +124,28 @@ GPIO4.associatedPins[1].internalResistor = "PULL_UP";
 GPIO4.associatedPins[1].interruptEn      = true;
 GPIO4.associatedPins[1].polarity         = "RISE";
 
-GPIO5.$name                          = "LED";
-GPIO5.associatedPins[0].$name        = "Led";
-GPIO5.associatedPins[0].assignedPort = "PORTB";
-GPIO5.associatedPins[0].assignedPin  = "22";
-GPIO5.associatedPins[0].pin.$assign  = "PB22";
+/*
+ * 对射式红外测速门：PB22 和 PB01。
+ * 两路均使用双边沿中断；驱动会按当前输入电平过滤非有效边沿，
+ * 因此可在 infrared_speed.h 中切换 NPN/PNP 的有效电平。
+ */
+GPIO5.$name                              = "InfraredSpeed";
+GPIO5.port                               = "PORTB";
+GPIO5.associatedPins.create(2);
+GPIO5.associatedPins[0].$name            = "GATE_A";
+GPIO5.associatedPins[0].direction        = "INPUT";
+GPIO5.associatedPins[0].assignedPin      = "22";
+GPIO5.associatedPins[0].interruptEn      = true;
+GPIO5.associatedPins[0].polarity         = "RISE_FALL";
+GPIO5.associatedPins[0].internalResistor = "PULL_UP";
+GPIO5.associatedPins[0].pin.$assign      = "PB22";
+GPIO5.associatedPins[1].$name            = "GATE_B";
+GPIO5.associatedPins[1].direction        = "INPUT";
+GPIO5.associatedPins[1].assignedPin      = "1";
+GPIO5.associatedPins[1].interruptEn      = true;
+GPIO5.associatedPins[1].polarity         = "RISE_FALL";
+GPIO5.associatedPins[1].internalResistor = "PULL_UP";
+GPIO5.associatedPins[1].pin.$assign      = "PB1";
 
 I2C1.advDigitalGlitchFilter            = "CLOCKS_1";
 I2C1.enableDMAEvent1                   = false;
@@ -323,5 +340,7 @@ GPIO2.associatedPins[1].pin.$suggestSolution = "PB25";
 GPIO2.associatedPins[2].pin.$suggestSolution = "PB20";
 GPIO3.associatedPins[0].pin.$suggestSolution = "PA16";
 GPIO4.associatedPins[1].pin.$suggestSolution = "PB26";
+GPIO5.associatedPins[0].pin.$suggestSolution = "PB22";
+GPIO5.associatedPins[1].pin.$suggestSolution = "PB1";
 TIMER1.peripheral.$suggestSolution           = "TIMA0";
 UART1.peripheral.$suggestSolution            = "UART0";

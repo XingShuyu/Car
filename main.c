@@ -11,6 +11,8 @@
 #include "Emm/Emm.h"
 #include "GrayScale/grayscale_sensor.h"
 #include "IMU/imu.h"
+#include "InfraredSpeed/infrared_speed.h"
+#include "InfraredSpeed/infrared_speed_test.h"
 #include "Motor/motor_runtime.h"
 #include "Motor/motor_step_test.h"
 #include "OLED/display.h"
@@ -29,6 +31,7 @@ typedef enum AppMenuAction {
 	AppMenuActionRoute = 0,
 	AppMenuActionArmTeach,
 	AppMenuActionArmTargetTest,
+	AppMenuActionInfraredSpeedTest,
 } AppMenuAction;
 
 typedef struct AppRouteOption {
@@ -52,6 +55,7 @@ static const AppRouteOption appRouteOptions[] = {
 	{AppMenuActionRoute, 4U, 0},
 	{AppMenuActionArmTeach, 0U, 0},
 	{AppMenuActionArmTargetTest, 0U, 0},
+	{AppMenuActionInfraredSpeedTest, 0U, 0},
 };
 
 #define APP_ROUTE_OPTION_COUNT \
@@ -72,6 +76,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 		snprintf(line, sizeof(line), "ARM TEACH TEST");
 	} else if (option->action == AppMenuActionArmTargetTest) {
 		snprintf(line, sizeof(line), "ARM TARGET TEST");
+	} else if (option->action == AppMenuActionInfraredSpeedTest) {
+		snprintf(line, sizeof(line), "IR SPEED TEST");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -82,7 +88,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 	Display_ShowString(5, 0, "B1 NEXT");
 	Display_ShowString(6, 0,
 				   ((option->action == AppMenuActionArmTeach) ||
-					(option->action == AppMenuActionArmTargetTest)) ?
+					(option->action == AppMenuActionArmTargetTest) ||
+					(option->action == AppMenuActionInfraredSpeedTest)) ?
 					   "B2 ENTER" :
 					   "B2 START");
 }
@@ -123,6 +130,8 @@ int main(void) {
 	//                初始化
 	//--------------------------------------
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+	TimeBase_Init(); // 红外测速中断需要微秒级时间基准
+	InfraredSpeed_Init();
 	//---------------中断使能----------------
 
 	MaixCamSerial_Init();
@@ -136,8 +145,6 @@ int main(void) {
 				   (Grayscale_GetActiveDriver() == GrayscaleDriver12) ?
 					   "Gray12 Ready" :
 					   "Gray8 Ready");
-
-	TimeBase_Init(); // 初始化计时器
 
 	// /* UART2 已分配给 Jibot；首次上电仅小幅测试夹爪。 */
 	// (void)JibotServo_SetAngle(3, -90.0F, 1000U);
@@ -180,7 +187,7 @@ int main(void) {
 
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
 	delay_ms(2000);
-	/* 两个 ARM 测试项退出后均回到地图选择。 */
+	/* 所有独立测试项退出后均回到地图选择。 */
 	while (true) {
 		routeOption = App_SelectRoute();
 		if (routeOption->action == AppMenuActionRoute) {
@@ -188,8 +195,10 @@ int main(void) {
 		}
 		if (routeOption->action == AppMenuActionArmTeach) {
 			ArmControl_RunTeachTest();
-		} else {
+		} else if (routeOption->action == AppMenuActionArmTargetTest) {
 			ArmTargetTest_Run();
+		} else {
+			InfraredSpeedTest_Run();
 		}
 	}
 	command = commandList[routeOption->commandIndex];

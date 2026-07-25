@@ -3,6 +3,7 @@
 #include "BasicMicroLib/usart.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"
+#include "InfraredSpeed/infrared_speed.h"
 #include "Motor/motor_encoder.h"
 #include "ti_msp_dl_config.h"
 
@@ -27,6 +28,7 @@ void GROUP1_IRQHandler(void)
 	(void)MotorEncoder_HandleGpioAInterrupt(gpioA_iidx);
 	(void)MotorEncoder_HandleGpioBInterrupt(gpioB_iidx);
 	(void)ButtonSelect_HandleGpioBInterrupt(gpioB_iidx);
+	(void)InfraredSpeed_HandleGpioBInterrupt(gpioB_iidx);
 }
 
 // 串口的中断服务函数
