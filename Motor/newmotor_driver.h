@@ -59,7 +59,7 @@ extern "C" {
 
 /* Encoder cycles per MOTOR shaft revolution before quadrature x4. */
 #ifndef NEWMOTOR_ENCODER_CPR_MOTOR
-#define NEWMOTOR_ENCODER_CPR_MOTOR (500.0f)
+#define NEWMOTOR_ENCODER_CPR_MOTOR (13.0f)
 #endif
 
 /* Encoder interrupt mode: one rising edge of phase A per encoder cycle. */

@@ -29,7 +29,9 @@ Main/
 ├── Arm/                            # Jibot 机械臂基础驱动
 │   ├── jibot_servo.h / .c           # UART2 位置帧发送、中心相对角到 PWM 换算
 │   ├── arm_control.h / .c           # 六轴 PWM 状态读取、菜单手动示教测试
-│   └── arm_motion_state.h / .c      # 六轴二维 PWM 动作表的非阻塞状态机
+│   ├── arm_motion_state.h / .c      # 六轴二维 PWM 动作表的非阻塞状态机
+│   ├── arm_ik_motion.h / .c         # 自动优先钩爪朝下逆解、标定映射与非阻塞执行
+│   └── arm_target_test.h / .c        # 硬编码 IK 目标的最小测试状态机
 │
 ├── Stage/                          # 比赛阶段与阶段状态机
 │   ├── Stage.h                     # 阶段枚举、命令结构体、commandList声明
@@ -201,25 +203,76 @@ main()
 
 SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧 `UART0/UART3` 是UART外设实例号；UART0 同时启用TX DMA和RX DMA，所以会占用两个DMA channel。`UART3` 不是 `DMA_CH3`，它只是MaixCam所用的UART外设编号。
 
-### 5.4 Jibot 机械臂基础位置控制 (`Arm/`)
+### 5.4 Jibot 机械臂控制接口 (`Arm/`)
 
-- `Arm/jibot_servo.h` 提供唯一的基础控制接口：
+机械臂 UART2 的控制分为五层：基础单轴/组帧驱动、示教读取、PWM 动作表、自动朝下笛卡尔逆解和菜单测试。上层不得自行拼接 Jibot 协议帧，应按需求选用下列公开接口。
 
-  ```c
-  bool JibotServo_SetAngle(uint8_t id, float angle_deg, uint16_t time_ms);
-  ```
+#### 5.4.1 轴号、协议范围与通信
 
-- 有效舵机 ID 为 `000` 至 `005`，对应从下到上的六个关节；`JIBOT_SERVO_ID_GRIPPER` 为 `005`。
-- 接口采用中心相对角：`0° = PWM 1500`，允许范围为 `-135°` 至 `+135°`；换算公式为 `round(1500 + angle_deg * 2000 / 270)`。正角只表示 PWM 增大，真实机械正方向、零位和限位必须在实机上逐关节标定。
-- `time_ms` 有效范围为 `0` 至 `9999` ms。参数无效时函数返回 `false`，且不会发送数据。
-- 发送帧格式为 `#dddPppppTtttt!`，例如夹爪 `+5°`、1000 ms 发送 `#005P1537T1000!`。
-- `JibotServo_ReleaseTorque(id)` 发送 `#dddPULK!` 释放扭力；`JibotServo_RestoreTorque(id)` 发送 `#dddPULR!` 恢复扭力。两者只确认命令已发送，不等待协议 `#OK!`；释放前必须支撑好机械臂。
-- `JibotServo_ReadPosition(id, &pwm, timeout_ms)` 发送 `#dddPRAD!`，在指定时间内轮询 UART2，匹配 `#dddPpppp!` 应答后返回原始 PWM 位置。此接口阻塞主循环，必须在 `TimeBase_Init()` 后调用，建议超时 20~100 ms。
-- 当前版本不包含非阻塞接收队列、插补轨迹、软限位、碰撞保护或逆运动学。
-- `ArmControl_PwmState` 保存六轴原始 PWM 与有效位图；`ArmControl_ReadAllPwm()` 依次读取 ID 0~5。地图选择中的 `ARM TEACH TEST` 会在进入时释放六轴扭力：B2 依次执行“读取 PWM 并恢复扭力 / 再次释放扭力”，B1 退出并恢复扭力。
-- `ArmMotionState` 使用 `uint16_t pwm[动作数][6]` 的二维动作表：每行是六轴目标 PWM。每行六轴位置命令会打包为 `{G0000#000P...!#001P...!...#005P...!}` 后一次发送；任意两条完整 Jibot 指令至少间隔 10 ms，并每 500 ms 读取六轴当前位置；任一轴未进入可配置 PWM 误差范围或查询失败时，重新发送当前行组位置命令，六轴全部到位后才执行下一行。
-- UART2 的 SysConfig 实例名为 `JibotArm`：`PB15` 为 MSPM0 TX（接机械臂控制器 RX）、`PB16` 为 MSPM0 RX（接控制器 TX），`115200 8N1`、无流控。控制器与 MSPM0 必须共地。
-- UART2 当前专供 Jibot，不再支持 DL-LN33。`Communication/cc2530_zigbee.c` 仅作为保留的历史源码编译，运行时不得初始化或调用其 API；若要恢复 DL-LN33，必须先在 SysConfig 和中断分发中重新规划 UART2。
+| ID/宏 | 机械轴 | 说明 |
+|---|---|---|
+| `JIBOT_SERVO_ID_BASE` (`0`) | 底座 yaw | 车头正前方零位由 IK 标定定义 |
+| `JIBOT_SERVO_ID_SHOULDER` (`1`) | 肩俯仰 | IK 平面关节 q1 |
+| `JIBOT_SERVO_ID_ELBOW` (`2`) | 肘俯仰 | IK 平面关节 q2 |
+| `JIBOT_SERVO_ID_WRIST_PITCH` (`3`) | 腕俯仰 | IK 平面关节 q3 |
+| `JIBOT_SERVO_ID_WRIST_ORIENTATION` (`4`) | 腕旋转 | 当前 IK 固定为标定 PWM |
+| `JIBOT_SERVO_ID_GRIPPER` (`5`) | 夹爪 | 当前 IK 固定为标定 PWM |
+
+- 协议位置范围：`PWM 500~2500`，等效中心相对角 `-135°~+135°`，`0° = PWM 1500`，换算为 `round(1500 + angle_deg * 2000 / 270)`。正角只表示 PWM 增大，不等同于机械正方向。
+- 到位时间 `time_ms` 为 `0~9999 ms`；任意完整 Jibot 命令的最小间隔是 `JIBOT_SERVO_COMMAND_INTERVAL_MS`（当前 1 ms）。
+- UART2 SysConfig 实例为 `JibotArm`：`PB15` 是 MSPM0 TX（接控制器 RX），`PB16` 是 MSPM0 RX（接控制器 TX），配置为 `115200 8N1`、无流控，双方必须共地。
+- UART2 当前只供 Jibot 使用。`Communication/cc2530_zigbee.c` 是历史源码，运行时禁止初始化或调用；恢复 DL-LN33 前必须重新规划 SysConfig 与中断分发。
+
+#### 5.4.2 基础驱动：`Arm/jibot_servo.h`
+
+| 接口 | 用途与行为 |
+|---|---|
+| `JibotServo_SetPwm(id, position_pwm, time_ms)` | 单轴原始 PWM 位置控制；参数非法或 UART 命令无法提交时返回 `false`。 |
+| `JibotServo_SetPwmBatch(position_pwm, time_ms)` | 一次发送 ID0~5 的同步组位置帧；`position_pwm` 必须是 6 个合法 PWM。六轴同步动作应优先使用它。 |
+| `JibotServo_SetAngle(id, angle_deg, time_ms)` | 单轴中心相对角控制；仅负责角度到 PWM 的协议换算，不负责机械零位、方向或碰撞限位。 |
+| `JibotServo_ReleaseTorque(id)` | 发送 `#dddPULK!` 释放单轴扭力。释放前必须支撑机械臂。 |
+| `JibotServo_RestoreTorque(id)` | 发送 `#dddPULR!` 恢复单轴扭力；只保持当前位置，不下发新位置。 |
+| `JibotServo_ReadPosition(id, &pwm, timeout_ms)` | 发送 `#dddPRAD!` 并阻塞等待匹配位置应答；成功写入原始 PWM。必须在 `TimeBase_Init()` 后调用，常用超时 20~100 ms。 |
+
+单轴位置帧格式为 `#dddPppppTtttt!`，六轴组帧格式为 `{G0000#000P...!#001P...!...#005P...!}`。驱动层只确认命令已交给 UART，不确认机械臂已实际到位。
+
+#### 5.4.3 示教与 PWM 动作表
+
+- `ArmControl_ReadAllPwm(ArmControl_PwmState *state, timeout_ms)`：依次阻塞读取 ID0~5；`validMask` 的位 n 表示 `pwm[n]` 有效。全部成功才返回 `true`。
+- `ArmControl_RunTeachTest()`：菜单 `ARM TEACH TEST` 的交互入口。进入立即释放六轴；B2 在“读取 PWM 并恢复扭力”与“再次释放扭力”之间切换；B1 退出并尝试恢复六轴扭力。
+- `ArmMotionState_Start(state, sequence, now_ms)`：启动非阻塞 PWM 动作表。动作表类型为 `uint16_t pwm[frameCount][JIBOT_SERVO_COUNT]`，可用 `ARM_MOTION_SEQUENCE(pwm_table)` 包装。
+- `ArmMotionState_Update(state, now_ms)`：主循环持续调用；每 500 ms 查询六轴。任一轴未进入 `ARM_MOTION_STATE_PWM_TOLERANCE`（当前 50 PWM）或查询失败时，重发当前帧；全部到位后再下发下一帧。返回 `Idle/Running/Completed/Failed`。
+- `ArmMotionState_Reset(state)`：丢弃动作状态，不发送停止命令。
+
+阶段命令可用 `StageArmMotionData` 配合 `STAGE_CMD_ARM_MOTION(&data)` 运行 PWM 动作表；阶段执行时会先刹停小车。
+
+#### 5.4.4 自动朝下笛卡尔控制：`Arm/arm_ik_motion.h`
+
+```c
+bool ArmIkMotion_Start(float yaw_deg, float x_mm, float y_mm);
+ArmMotionState_Status ArmIkMotion_Update(void);
+void ArmIkMotion_Reset(void);
+```
+
+- 坐标约定：`yaw=0` 指向车头前方，从车顶看逆时针为正；`x` 是底座偏航后的水平径向距离（mm，必须不小于 0）；`y` 是相对底座旋转中心向上的高度（mm）。
+- 末端方向不再由调用方指定。求解器在有限解析候选中优先选择钩爪方向最接近竖直向下（模型方向 180°）的姿态；方向误差相同才比较三个平面关节与当前位置的等权平方移动量。
+- 默认几何为 `h=91 mm`、`L1=104 mm`、`L2=74.5 mm`、`L3=174 mm`；q1~q3 默认模型限位均为 ±130°。有效限位还会与标定零位、轴方向、协议 ±135° 和轴 PWM 软件限位求交。
+- `Start()` 会阻塞读取 ID1~3 的当前位置，以选择较小移动量的候选；成功后下发一帧六轴 PWM 并启动内部 `ArmMotionState`。ID4/ID5 使用 `fixedPwm`，默认均为 1500。
+- `ArmIkMotion_LastStartWasReachabilityFailure()` 用于区分失败原因：目标无解、模型角/PWM 越界、NaN/无穷、`x<0` 或 yaw 无法映射时返回 `true`；忙状态、标定错误、位置读取或发送失败时返回 `false`。
+- `ArmIkMotion_SetCalibration()` / `ArmIkMotion_GetCalibration()` 读写 `ArmIkMotion_Calibration`。只能在 IK 不运行时设置；可校准几何尺寸、q1~q3 模型限位、ID0~3 零位/方向/PWM 限位、ID4/5 固定 PWM 与位置读取超时。
+
+阶段命令使用 `StageArmIkMotionData { yawDeg, xMm, yMm }` 和 `STAGE_CMD_ARM_IK_MOTION(&data)`。阶段开始会刹停小车；不可达显示 `CANT REACH`，其余启动或运行失败显示 `ARM IK FAIL`。
+
+#### 5.4.5 菜单 IK 测试：`Arm/arm_target_test.h`
+
+| 接口 | 用途 |
+|---|---|
+| `ArmTargetTest_SubmitTarget(yaw_deg, x_mm, y_mm)` | 空闲、完成或失败状态下提交一次自动朝下 IK 目标。 |
+| `ArmTargetTest_Update()` | 推进并返回 `Idle/Moving/Completed/CannotReach/Failed`。 |
+| `ArmTargetTest_Reset()` | 重置测试与 IK 状态，不发送停止命令。 |
+| `ArmTargetTest_Run()` | 菜单 `ARM TARGET TEST` 入口；函数内硬编码 `yaw_deg/x_mm/y_mm`，提交后仅轮询状态，B1 退出。 |
+
+测试 OLED 状态：`TARGET MOVING`、`TARGET REACHED`、`CANT REACH`、`TARGET START FAIL`。该测试不读取 MaixCam/蓝牙数据，也不使用路线动作表。
 
 ### 5.5 WDD35D4与超声波
 

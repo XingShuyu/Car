@@ -1,5 +1,6 @@
 #include "Arm/jibot_servo.h"
 #include "Arm/arm_control.h"
+#include "Arm/arm_target_test.h"
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
@@ -27,6 +28,7 @@ static const StageRunner_Config stageConfig = {
 typedef enum AppMenuAction {
 	AppMenuActionRoute = 0,
 	AppMenuActionArmTeach,
+	AppMenuActionArmTargetTest,
 } AppMenuAction;
 
 typedef struct AppRouteOption {
@@ -49,6 +51,7 @@ static const AppRouteOption appRouteOptions[] = {
 	{AppMenuActionRoute, 3U, 3},
 	{AppMenuActionRoute, 4U, 0},
 	{AppMenuActionArmTeach, 0U, 0},
+	{AppMenuActionArmTargetTest, 0U, 0},
 };
 
 #define APP_ROUTE_OPTION_COUNT \
@@ -67,6 +70,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 
 	if (option->action == AppMenuActionArmTeach) {
 		snprintf(line, sizeof(line), "ARM TEACH TEST");
+	} else if (option->action == AppMenuActionArmTargetTest) {
+		snprintf(line, sizeof(line), "ARM TARGET TEST");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -76,7 +81,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 	Display_ShowString(2, 0, line);
 	Display_ShowString(5, 0, "B1 NEXT");
 	Display_ShowString(6, 0,
-				   (option->action == AppMenuActionArmTeach) ?
+				   ((option->action == AppMenuActionArmTeach) ||
+					(option->action == AppMenuActionArmTargetTest)) ?
 					   "B2 ENTER" :
 					   "B2 START");
 }
@@ -174,13 +180,17 @@ int main(void) {
 
 	Display_ShowString(0, 0, "Car Ready"); // 可选：开机显示欢迎信息
 	delay_ms(2000);
-	/* ARM TEACH 是菜单内的独立测试项；退出后回到地图选择。 */
+	/* 两个 ARM 测试项退出后均回到地图选择。 */
 	while (true) {
 		routeOption = App_SelectRoute();
-		if (routeOption->action != AppMenuActionArmTeach) {
+		if (routeOption->action == AppMenuActionRoute) {
 			break;
 		}
-		ArmControl_RunTeachTest();
+		if (routeOption->action == AppMenuActionArmTeach) {
+			ArmControl_RunTeachTest();
+		} else {
+			ArmTargetTest_Run();
+		}
 	}
 	command = commandList[routeOption->commandIndex];
 

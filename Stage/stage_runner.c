@@ -4,6 +4,7 @@
 #include <stdbool.h>
 #include <stdio.h>
 
+#include "Arm/arm_ik_motion.h"
 #include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
@@ -280,6 +281,7 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	TrackingLowSpeedStartTime = 0U;
 	lastTrackingDisplayTime = 0U;
 	ArmMotionState_Reset(&armMotionState);
+	ArmIkMotion_Reset();
 	distence[0] = 0.0f;
 	distence[1] = 0.0f;
 	IMUData.yaw = 0.0f;
@@ -760,6 +762,37 @@ bool StageRunner_Update(uint32_t nowTime) {
 			StageIndex++;
 		} else if (armStatus == ArmMotionStateFailed) {
 			Display_ShowString(0, 0, "ARM MOTION FAIL");
+			shouldStopRun = true;
+		}
+		break;
+	}
+	case StageArmIkMotion: {
+		const StageArmIkMotionData *armData =
+			(const StageArmIkMotionData *)stageData;
+		ArmMotionState_Status armStatus;
+
+		if (StageFlag == 0) {
+			/* 笛卡尔动作同样必须在车辆静止时执行。 */
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			if ((armData == NULL) ||
+				!ArmIkMotion_Start(armData->yawDeg, armData->xMm,
+							  armData->yMm)) {
+				Display_ShowString(0, 0,
+					ArmIkMotion_LastStartWasReachabilityFailure() ?
+						"CANT REACH" : "ARM IK FAIL");
+				shouldStopRun = true;
+				break;
+			}
+			StageFlag = 1;
+		}
+
+		armStatus = ArmIkMotion_Update();
+		if (armStatus == ArmMotionStateCompleted) {
+			StageFlag = 0;
+			StageIndex++;
+		} else if (armStatus == ArmMotionStateFailed) {
+			Display_ShowString(0, 0, "ARM IK FAIL");
 			shouldStopRun = true;
 		}
 		break;

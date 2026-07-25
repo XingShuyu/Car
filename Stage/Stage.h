@@ -4,6 +4,7 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#include "Arm/arm_ik_motion.h"
 #include "Arm/arm_motion_state.h"
 
 /*
@@ -32,7 +33,9 @@ typedef enum StageType {
 	/* 刹停并等待 PB26（B2/Start）按下后再执行下一条命令。 */
 	StageButtonContinue = 18,
 	/* 六轴按 PWM 动作表逐列运动；完成后自动执行下一条阶段命令。 */
-	StageArmMotion = 19
+	StageArmMotion = 19,
+	/* 自动优先钩爪朝下的三参数笛卡尔逆解动作；完成后执行下一条命令。 */
+	StageArmIkMotion = 20
 } Stage;
 
 typedef struct StageCommand {
@@ -54,6 +57,13 @@ typedef struct StageMaixCamCommandData {
 typedef struct StageArmMotionData {
 	ArmMotionState_Sequence sequence;
 } StageArmMotionData;
+
+/** yaw(度)、x/y(mm) 的自动优先钩爪朝下笛卡尔动作参数。 */
+typedef struct StageArmIkMotionData {
+	float yawDeg;
+	float xMm;
+	float yMm;
+} StageArmIkMotionData;
 
 /*
  * 使用示例（每一行是一个动作，第二维固定为六个舵机 ID）：
@@ -79,6 +89,8 @@ typedef struct StageArmMotionData {
 	{StageMaixCamCommand, (&(StageMaixCamCommandData){(data_ptr), (data_len)}), 0.0}
 #define STAGE_CMD_ARM_MOTION(data_ptr) \
 	{StageArmMotion, (data_ptr), 0.0}
+#define STAGE_CMD_ARM_IK_MOTION(data_ptr) \
+	{StageArmIkMotion, (data_ptr), 0.0}
 
 #define STAGE_COMMAND_LIST_COUNT 5U
 
