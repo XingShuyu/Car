@@ -3,6 +3,7 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Communication/bluetooth_serial.h"
 #include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
@@ -28,6 +29,7 @@ static const StageRunner_Config stageConfig = {
 typedef enum AppMenuAction {
 	AppMenuActionRoute = 0,
 	AppMenuActionArmTeach,
+	AppMenuActionMotorPidTest,
 } AppMenuAction;
 
 typedef struct AppRouteOption {
@@ -50,6 +52,7 @@ static const AppRouteOption appRouteOptions[] = {
 	{AppMenuActionRoute, 3U, 3},
 	{AppMenuActionRoute, 4U, 0},
 	{AppMenuActionArmTeach, 0U, 0},
+	{AppMenuActionMotorPidTest, 0U, 0},
 };
 
 #define APP_ROUTE_OPTION_COUNT \
@@ -68,6 +71,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 
 	if (option->action == AppMenuActionArmTeach) {
 		snprintf(line, sizeof(line), "ARM TEACH TEST");
+	} else if (option->action == AppMenuActionMotorPidTest) {
+		snprintf(line, sizeof(line), "MOTOR PID TEST");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -77,9 +82,9 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 	Display_ShowString(2, 0, line);
 	Display_ShowString(5, 0, "B1 NEXT");
 	Display_ShowString(6, 0,
-				   (option->action == AppMenuActionArmTeach) ?
-					   "B2 ENTER" :
-					   "B2 START");
+				   (option->action == AppMenuActionRoute) ?
+					   "B2 START" :
+					   "B2 ENTER");
 }
 
 static const AppRouteOption *App_SelectRoute(void)
@@ -127,6 +132,7 @@ int main(void) {
 	MaixCamSerial_Init();
 	BoardIrq_Enable();
 	USART_Init(); // 使能UART中断（接收依赖此步骤）
+	BluetoothSerial_Init();
 	setvbuf(stdout, NULL, _IONBF, 0);
 
 	Display_Init(); // 初始化显示屏
@@ -142,10 +148,6 @@ int main(void) {
 
 	MotorRuntime_Init();
 	printf("OK");
-
-#if MOTOR_STEP_TEST_ENABLE
-	MotorStepTest_Run();
-#endif
 
 	// IMU初始化
 	{
@@ -179,6 +181,8 @@ int main(void) {
 		}
 		if (routeOption->action == AppMenuActionArmTeach) {
 			ArmControl_RunTeachTest();
+		} else if (routeOption->action == AppMenuActionMotorPidTest) {
+			MotorStepTest_Run(stageConfig.base_speed_mmps);
 		}
 	}
 	command = commandList[routeOption->commandIndex];

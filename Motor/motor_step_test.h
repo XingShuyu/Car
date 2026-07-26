@@ -1,19 +1,11 @@
 #ifndef MOTOR_STEP_TEST_H
 #define MOTOR_STEP_TEST_H
 
-#define MOTOR_STEP_TEST_ENABLE 0
-#define MOTOR_STEP_TEST_TARGET_MMPS 500.0f
-#define MOTOR_STEP_TEST_CONTROL_PERIOD_US 500U
-#define MOTOR_STEP_TEST_MEASURE_WINDOW_US 1000U
-#define MOTOR_STEP_TEST_TIMEOUT_MS 5000U
-#define MOTOR_STEP_TEST_REACHED_RATIO 0.95f
-#define MOTOR_STEP_TEST_ABS_TOL_MMPS 25.0f
-#define MOTOR_STEP_TEST_STABLE_TIME_MS 500U
-#define MOTOR_STEP_TEST_LOG_INTERVAL_MS 100U
-#define MOTOR_STEP_TEST_PWM_SAT_TICKS 2000
-
-#if MOTOR_STEP_TEST_ENABLE
-void MotorStepTest_Run(void);
-#endif
+/**
+ * @brief 运行交互式双轮 PID 阶跃测试。
+ *
+ * B1 退出并刹停；B2 复位后重新加速到 target_mmps。
+ */
+void MotorStepTest_Run(int target_mmps);
 
 #endif

@@ -18,8 +18,6 @@
 #include "Motor/motor_runtime.h"
 #include "OLED/display.h"
 
-#define STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS 300
-#define STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS 200
 #define STAGE_RUNNER_UPDATE_INTERVAL_MS 10U
 #define STAGE_RUNNER_MAIXCAM_FRAME_SIZE 32U
 #define STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE 32U
@@ -59,8 +57,8 @@ static IMU_Data_t IMUData;
 static bool grayscale[GRAYSCALE_SENSOR_CHANNELS];
 
 static const StageCommand *command = NULL;
-static int BaseSpeed = STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS;
-static int RoundSpeed = STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS;
+static int BaseSpeed = 0;
+static int RoundSpeed = 0;
 static int MaixCamPendingStage = -1;
 static int TrackingMonitorStageIndex = -1;
 static bool TrackingLowSpeedActive = false;
@@ -271,7 +269,8 @@ StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 
 void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config) {
-	command = commands;
+	/* 速度配置必须由 main.c 的 stageConfig 显式提供，避免模块内重复默认值。 */
+	command = (config != NULL) ? commands : NULL;
 	Goal = goal;
 	StageIndex = 0;
 	StageFlag = 0;
@@ -286,13 +285,8 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	distence[1] = 0.0f;
 	IMUData.yaw = 0.0f;
 
-	if (config != NULL) {
-		BaseSpeed = config->base_speed_mmps;
-		RoundSpeed = config->round_speed_mmps;
-	} else {
-		BaseSpeed = STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS;
-		RoundSpeed = STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS;
-	}
+	BaseSpeed = (config != NULL) ? config->base_speed_mmps : 0;
+	RoundSpeed = (config != NULL) ? config->round_speed_mmps : 0;
 
 	lastStageTime = getNowMs();
 }
@@ -474,8 +468,6 @@ bool StageRunner_Update(uint32_t nowTime) {
 		}
 		if (StageFlag > 5) {
 			StageFlag = 0;
-			printf("l1: %.2f", distence[0]);
-			printf("l2: %.2f", distence[1]);
 			StageIndex++;
 		}
 		if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
@@ -669,8 +661,6 @@ bool StageRunner_Update(uint32_t nowTime) {
 												stageSpeed + 20 * IMUData.yaw);
 			}
 			char temp[21];
-			sprintf(temp, "len:%.2f", fabs(stageDistence - avgDistance));
-			Display_ShowString(2, 0, temp);
 		}
 		break;
 	}
