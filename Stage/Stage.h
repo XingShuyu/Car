@@ -35,7 +35,11 @@ typedef enum StageType {
 	/* 六轴按 PWM 动作表逐列运动；完成后自动执行下一条阶段命令。 */
 	StageArmMotion = 19,
 	/* 自动优先钩爪朝下的三参数笛卡尔逆解动作；完成后执行下一条命令。 */
-	StageArmIkMotion = 20
+	StageArmIkMotion = 20,
+	/* Follower 刹停等待 Leader 的 StageCross 完成消息。 */
+	StageZigbeeWaitStart = 21,
+	/* Leader 在 StageCross 完成后通知 Follower。 */
+	StageZigbeeNotifyDone = 22
 } Stage;
 
 typedef struct StageCommand {
@@ -92,7 +96,7 @@ typedef struct StageArmIkMotionData {
 #define STAGE_CMD_ARM_IK_MOTION(data_ptr) \
 	{StageArmIkMotion, (data_ptr), 0.0}
 
-#define STAGE_COMMAND_LIST_COUNT 5U
+#define STAGE_COMMAND_LIST_COUNT 6U
 
 extern const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT];
 

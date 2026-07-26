@@ -3,6 +3,7 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Communication/car_sync.h"
 #include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
@@ -23,6 +24,9 @@
 static const StageRunner_Config stageConfig = {
 	.base_speed_mmps = 300,
 	.round_speed_mmps = 150,
+	.sync_role = CarSyncRoleSolo,
+	.sync_peer_address = 0U,
+	.sync_run_id = CARSYNC_CROSS_RUN_ID,
 };
 
 typedef enum AppMenuAction {
@@ -34,6 +38,7 @@ typedef struct AppRouteOption {
 	AppMenuAction action;
 	uint8_t commandIndex;
 	int goal;
+	CarSyncRole syncRole;
 } AppRouteOption;
 
 /*
@@ -41,15 +46,17 @@ typedef struct AppRouteOption {
  * 地图 4 的四个目标点展开为独立候选项，使两按键即可完成选择和启动。
  */
 static const AppRouteOption appRouteOptions[] = {
-	{AppMenuActionRoute, 0U, 0},
-	{AppMenuActionRoute, 1U, 0},
-	{AppMenuActionRoute, 2U, 0},
-	{AppMenuActionRoute, 3U, 0},
-	{AppMenuActionRoute, 3U, 1},
-	{AppMenuActionRoute, 3U, 2},
-	{AppMenuActionRoute, 3U, 3},
-	{AppMenuActionRoute, 4U, 0},
-	{AppMenuActionArmTeach, 0U, 0},
+	{AppMenuActionRoute, 0U, 0, CarSyncRoleSolo},
+	{AppMenuActionRoute, 1U, 0, CarSyncRoleSolo},
+	{AppMenuActionRoute, 2U, 0, CarSyncRoleSolo},
+	{AppMenuActionRoute, 3U, 0, CarSyncRoleSolo},
+	{AppMenuActionRoute, 3U, 1, CarSyncRoleSolo},
+	{AppMenuActionRoute, 3U, 2, CarSyncRoleSolo},
+	{AppMenuActionRoute, 3U, 3, CarSyncRoleSolo},
+	{AppMenuActionRoute, 4U, 0, CarSyncRoleSolo},
+	{AppMenuActionRoute, 5U, 0, CarSyncRoleLeader},
+	{AppMenuActionRoute, 5U, 0, CarSyncRoleFollower},
+	{AppMenuActionArmTeach, 0U, 0, CarSyncRoleSolo},
 };
 
 #define APP_ROUTE_OPTION_COUNT \
@@ -68,6 +75,10 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 
 	if (option->action == AppMenuActionArmTeach) {
 		snprintf(line, sizeof(line), "ARM TEACH TEST");
+	} else if (option->syncRole == CarSyncRoleLeader) {
+		snprintf(line, sizeof(line), "CROSS LEADER");
+	} else if (option->syncRole == CarSyncRoleFollower) {
+		snprintf(line, sizeof(line), "CROSS FOLLOWER");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -111,9 +122,75 @@ static const AppRouteOption *App_SelectRoute(void)
 	}
 }
 
+static uint16_t App_GetCarSyncLocalAddress(CarSyncRole role)
+{
+	if (role == CarSyncRoleLeader) {
+		return CARSYNC_LEADER_ADDRESS;
+	}
+	if (role == CarSyncRoleFollower) {
+		return CARSYNC_FOLLOWER_ADDRESS;
+	}
+	return 0U;
+}
+
+static uint16_t App_GetCarSyncPeerAddress(CarSyncRole role)
+{
+	if (role == CarSyncRoleLeader) {
+		return CARSYNC_FOLLOWER_ADDRESS;
+	}
+	if (role == CarSyncRoleFollower) {
+		return CARSYNC_LEADER_ADDRESS;
+	}
+	return 0U;
+}
+
+static bool App_SetupCarSyncNetwork(CarSyncRole role)
+{
+	DLLN33_NetworkConfig networkConfig;
+	DLLN33_NetworkSetupState setupState;
+	char line[21];
+
+	if (role == CarSyncRoleSolo) {
+		return true;
+	}
+
+	networkConfig.address = App_GetCarSyncLocalAddress(role);
+	networkConfig.network_id = CARSYNC_NETWORK_ID;
+	networkConfig.channel = CARSYNC_CHANNEL;
+
+	Display_Clear();
+	Display_ShowString(0, 0, "ZB SETUP");
+	if (!DLLN33_BeginNetworkSetup(&networkConfig)) {
+		Display_ShowString(1, 0, "ZB BEGIN FAIL");
+		delay_ms(1200);
+		return false;
+	}
+
+	while (true) {
+		USART_PollTx();
+		DLLN33_Poll();
+		MaixCamSerial_Poll();
+
+		setupState = DLLN33_GetNetworkSetupState();
+		if (setupState == DLLN33_NETWORK_SETUP_COMPLETE) {
+			Display_ShowString(1, 0, "ZB OK");
+			delay_ms(500);
+			return true;
+		}
+		if (setupState == DLLN33_NETWORK_SETUP_FAILED) {
+			snprintf(line, sizeof(line), "ZB FAIL %02X",
+					 (unsigned int)DLLN33_GetNetworkSetupError());
+			Display_ShowString(1, 0, line);
+			delay_ms(1500);
+			return false;
+		}
+	}
+}
+
 int main(void) {
 	const AppRouteOption *routeOption;
 	const StageCommand *command;
+	StageRunner_Config runConfig;
 
 	//--------------------------------------
 	//                初始化
@@ -174,7 +251,8 @@ int main(void) {
 	/* 所有独立测试项退出后均回到地图选择。 */
 	while (true) {
 		routeOption = App_SelectRoute();
-		if (routeOption->action == AppMenuActionRoute) {
+		if (routeOption->action == AppMenuActionRoute &&
+			App_SetupCarSyncNetwork(routeOption->syncRole)) {
 			break;
 		}
 		if (routeOption->action == AppMenuActionArmTeach) {
@@ -182,14 +260,23 @@ int main(void) {
 		}
 	}
 	command = commandList[routeOption->commandIndex];
+	runConfig = stageConfig;
+	runConfig.sync_role = routeOption->syncRole;
+	runConfig.sync_peer_address = App_GetCarSyncPeerAddress(routeOption->syncRole);
+	runConfig.sync_run_id = CARSYNC_CROSS_RUN_ID;
 
 	/* 选择等待时间不应影响出发时的航向零点。 */
 	IMU_ZeroYaw();
 	startTime = getNowMs();
 	Buzzer_Beep();
-	StageRunner_Init(command, routeOption->goal, &stageConfig);
-	MotorRuntime_SetTargetWheelMmps(stageConfig.base_speed_mmps,
-									stageConfig.base_speed_mmps);
+	StageRunner_Init(command, routeOption->goal, &runConfig);
+	if (runConfig.sync_role == CarSyncRoleFollower) {
+		MotorRuntime_SetTargetWheelMmps(0, 0);
+		MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+	} else {
+		MotorRuntime_SetTargetWheelMmps(runConfig.base_speed_mmps,
+										runConfig.base_speed_mmps);
+	}
 
 	while (1) {
 		// 更新当前时间

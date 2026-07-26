@@ -158,10 +158,18 @@ static const StageCommand command4[] = {
 	STAGE_CMD(StageEnd),
 };
 
+static const StageCommand command5[] = {
+	STAGE_CMD(StageZigbeeWaitStart),
+	STAGE_CMD(StageCross),
+	STAGE_CMD(StageZigbeeNotifyDone),
+	STAGE_CMD(StageEnd),
+};
+
 const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT] = {
 	command0,
 	command1,
 	command2,
 	command3,
 	command4,
+	command5,
 };

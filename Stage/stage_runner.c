@@ -8,6 +8,7 @@
 #include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
+#include "Communication/car_sync.h"
 #include "Communication/maixcam_protocol.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"
@@ -98,6 +99,22 @@ static void StageRunner_SyncTrackingMonitor(uint32_t nowTime) {
 	TrackingLowSpeedStartTime = 0U;
 	lastTrackingDisplayTime =
 		nowTime - STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
+}
+
+static int StageRunner_CountOnlineSnapshot(
+	const bool sensorValues[GRAYSCALE_SENSOR_CHANNELS]) {
+	int count = 0;
+
+	if (sensorValues == NULL) {
+		return 0;
+	}
+
+	for (uint8_t i = 0U; i < GRAYSCALE_SENSOR_CHANNELS; i++) {
+		if (sensorValues[i]) {
+			count++;
+		}
+	}
+	return count;
 }
 
 /*
@@ -271,6 +288,10 @@ StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 
 void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config) {
+	CarSyncRole syncRole = CarSyncRoleSolo;
+	uint16_t syncPeerAddress = 0U;
+	uint8_t syncRunId = CARSYNC_CROSS_RUN_ID;
+
 	command = commands;
 	Goal = goal;
 	StageIndex = 0;
@@ -289,10 +310,14 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	if (config != NULL) {
 		BaseSpeed = config->base_speed_mmps;
 		RoundSpeed = config->round_speed_mmps;
+		syncRole = config->sync_role;
+		syncPeerAddress = config->sync_peer_address;
+		syncRunId = config->sync_run_id;
 	} else {
 		BaseSpeed = STAGE_RUNNER_DEFAULT_BASE_SPEED_MMPS;
 		RoundSpeed = STAGE_RUNNER_DEFAULT_ROUND_SPEED_MMPS;
 	}
+	CarSync_Init(syncRole, syncPeerAddress, syncRunId);
 
 	lastStageTime = getNowMs();
 }
@@ -463,20 +488,31 @@ bool StageRunner_Update(uint32_t nowTime) {
 			MotorRuntime_ResetDistance();
 			StageFlag++;
 		}
+		if (StageFlag > 5) {
+			printf("l1: %.2f", distence[0]);
+			printf("l2: %.2f", distence[1]);
+			StageFlag = 5;
+		}
 		if (StageFlag > 0 && StageFlag <= 5) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
+
+			if (Grayscale_LastReadOk() &&
+				StageRunner_CountOnlineSnapshot(grayscale) == 0) {
+				MotorRuntime_SetTargetWheelMmps(0, 0);
+				MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+				Display_ShowString(0, 0, "Cross Done");
+				StageFlag = 0;
+				StageIndex++;
+				lastStageTime = nowTime;
+				break;
+			}
+
 			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
 			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
 				shouldStopRun = true;
 				break;
 			}
-		}
-		if (StageFlag > 5) {
-			StageFlag = 0;
-			printf("l1: %.2f", distence[0]);
-			printf("l2: %.2f", distence[1]);
-			StageIndex++;
 		}
 		if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
 			 Grayscale_Cross(grayscale, 1)) &&
@@ -734,6 +770,71 @@ bool StageRunner_Update(uint32_t nowTime) {
 				lastStageTime = nowTime;
 				break;
 			}
+		}
+		break;
+	}
+	case StageZigbeeWaitStart: {
+		if (CarSync_GetRole() != CarSyncRoleFollower) {
+			StageFlag = 0;
+			StageIndex++;
+			lastStageTime = nowTime;
+			break;
+		}
+
+		if (StageFlag == 0) {
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			CarSync_ClearReceived();
+			Display_Clear();
+			Display_ShowString(0, 0, "Wait Leader");
+			Display_ShowString(1, 0, "StageCross");
+			StageFlag = 1;
+		}
+
+		if (CarSync_WaitCrossDone(nowTime)) {
+			if (CarSync_SendAck()) {
+				Display_Clear();
+				Display_ShowString(0, 0, "Cross Start");
+				StageFlag = 0;
+				StageIndex++;
+				lastStageTime = nowTime;
+			} else {
+				Display_ShowString(2, 0, "ACK RETRY");
+			}
+		}
+		break;
+	}
+	case StageZigbeeNotifyDone: {
+		CarSyncNotifyStatus notifyStatus;
+
+		if (CarSync_GetRole() != CarSyncRoleLeader) {
+			StageFlag = 0;
+			StageIndex++;
+			lastStageTime = nowTime;
+			break;
+		}
+
+		if (StageFlag == 0) {
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			Display_Clear();
+			Display_ShowString(0, 0, "Send Done");
+			StageFlag = 1;
+		}
+
+		notifyStatus = CarSync_SendCrossDone(nowTime);
+		if (notifyStatus == CarSyncNotifyAcked) {
+			Display_ShowString(1, 0, "Follower ACK");
+			StageFlag = 0;
+			StageIndex++;
+			lastStageTime = nowTime;
+		} else if (notifyStatus == CarSyncNotifyTimedOut) {
+			Display_ShowString(1, 0, "ACK Timeout");
+			StageFlag = 0;
+			StageIndex++;
+			lastStageTime = nowTime;
+		} else if (notifyStatus == CarSyncNotifySendFailed) {
+			Display_ShowString(1, 0, "TX RETRY");
 		}
 		break;
 	}
