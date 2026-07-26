@@ -81,7 +81,7 @@ typedef struct {
 } DLLN33_Statistics;
 
 /*
- * 在 SYSCFG_DL_init() 之后、打开 UART2 NVIC 之前调用。
+ * 在 SYSCFG_DL_init() 之后、打开 DL_LN33 UART2 NVIC 之前调用。
  * 初始化帧解析器、UART2 RX 中断和非阻塞发送队列。
  */
 void DLLN33_Init(void);
@@ -89,7 +89,7 @@ void DLLN33_Init(void);
 /* 主循环调用：将发送队列灌入 UART2 FIFO，并推进异步网络初始化。 */
 void DLLN33_Poll(void);
 
-/* 在 UART2_IRQHandler 中调用，见 Drivers/board_isr.c。 */
+/* 在 DL_LN33_INST_IRQHandler 中调用，见 Drivers/board_isr.c。 */
 void DLLN33_IRQHandler(void);
 
 /*

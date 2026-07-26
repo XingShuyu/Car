@@ -31,7 +31,7 @@ enum {
  * @param id 舵机 ID，允许 000~005。
  * @param position_pwm 目标 PWM，允许 500~2500。
  * @param time_ms 到达目标的时间，允许 0~9999 ms。
- * @return 参数合法且命令已提交给 UART2 发送时返回 true；否则返回 false。
+ * @return 参数合法且命令已提交给 UART0 发送时返回 true；否则返回 false。
  */
 bool JibotServo_SetPwm(uint8_t id, uint16_t position_pwm,
 					   uint16_t time_ms);
@@ -44,7 +44,7 @@ bool JibotServo_SetPwm(uint8_t id, uint16_t position_pwm,
  *
  * @param position_pwm 六个舵机 ID 0~5 的目标 PWM，均须在 500~2500。
  * @param time_ms 全部舵机共用的到达时间，允许 0~9999 ms。
- * @return 参数合法且整条组命令已提交给 UART2 发送时返回 true；否则返回 false。
+ * @return 参数合法且整条组命令已提交给 UART0 发送时返回 true；否则返回 false。
  */
 bool JibotServo_SetPwmBatch(const uint16_t position_pwm[JIBOT_SERVO_COUNT],
 							uint16_t time_ms);
@@ -58,7 +58,7 @@ bool JibotServo_SetPwmBatch(const uint16_t position_pwm[JIBOT_SERVO_COUNT],
  * @param id 舵机 ID，允许 000~005。
  * @param angle_deg 目标相对角度，允许 -135.0~+135.0 度。
  * @param time_ms 到达目标的时间，允许 0~9999 ms。
- * @return 参数合法且命令已提交给 UART2 发送时返回 true；否则返回 false。
+ * @return 参数合法且命令已提交给 UART0 发送时返回 true；否则返回 false。
  */
 bool JibotServo_SetAngle(uint8_t id, float angle_deg, uint16_t time_ms);
 
@@ -69,7 +69,7 @@ bool JibotServo_SetAngle(uint8_t id, float angle_deg, uint16_t time_ms);
  * 机械臂已得到支撑，避免因重力下落、夹伤或碰撞。
  *
  * @param id 舵机 ID，允许 000~005。
- * @return 参数合法且命令已提交给 UART2 发送时返回 true；否则返回 false。
+ * @return 参数合法且命令已提交给 UART0 发送时返回 true；否则返回 false。
  */
 bool JibotServo_ReleaseTorque(uint8_t id);
 
@@ -87,7 +87,7 @@ bool JibotServo_RestoreTorque(uint8_t id);
 /**
  * @brief 读取一个 Jibot 舵机的当前位置 PWM 值。
  *
- * 发送 #dddPRAD!，并轮询 UART2 等待 #dddPpppp! 应答。返回值为协议中的
+ * 发送 #dddPRAD!，并轮询 UART0 等待 #dddPpppp! 应答。返回值为协议中的
  * 原始 PWM 位置（通常 500~2500）；需要中心相对角时可按
  * (pwm - 1500) * 270 / 2000 换算。
  *

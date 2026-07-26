@@ -1,18 +1,16 @@
 #include "Arm/jibot_servo.h"
 #include "Arm/arm_control.h"
-#include "Arm/arm_target_test.h"
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
+#include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
 #include "Drivers/button_select.h"
 #include "Drivers/buzzer.h"
-#include "Emm/Emm.h"
 #include "GrayScale/grayscale_sensor.h"
 #include "IMU/imu.h"
 #include "InfraredSpeed/infrared_speed.h"
-#include "InfraredSpeed/infrared_speed_test.h"
 #include "Motor/motor_runtime.h"
 #include "Motor/motor_step_test.h"
 #include "OLED/display.h"
@@ -30,8 +28,6 @@ static const StageRunner_Config stageConfig = {
 typedef enum AppMenuAction {
 	AppMenuActionRoute = 0,
 	AppMenuActionArmTeach,
-	AppMenuActionArmTargetTest,
-	AppMenuActionInfraredSpeedTest,
 } AppMenuAction;
 
 typedef struct AppRouteOption {
@@ -54,8 +50,6 @@ static const AppRouteOption appRouteOptions[] = {
 	{AppMenuActionRoute, 3U, 3},
 	{AppMenuActionRoute, 4U, 0},
 	{AppMenuActionArmTeach, 0U, 0},
-	{AppMenuActionArmTargetTest, 0U, 0},
-	{AppMenuActionInfraredSpeedTest, 0U, 0},
 };
 
 #define APP_ROUTE_OPTION_COUNT \
@@ -74,10 +68,6 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 
 	if (option->action == AppMenuActionArmTeach) {
 		snprintf(line, sizeof(line), "ARM TEACH TEST");
-	} else if (option->action == AppMenuActionArmTargetTest) {
-		snprintf(line, sizeof(line), "ARM TARGET TEST");
-	} else if (option->action == AppMenuActionInfraredSpeedTest) {
-		snprintf(line, sizeof(line), "IR SPEED TEST");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -87,9 +77,7 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 	Display_ShowString(2, 0, line);
 	Display_ShowString(5, 0, "B1 NEXT");
 	Display_ShowString(6, 0,
-				   ((option->action == AppMenuActionArmTeach) ||
-					(option->action == AppMenuActionArmTargetTest) ||
-					(option->action == AppMenuActionInfraredSpeedTest)) ?
+				   (option->action == AppMenuActionArmTeach) ?
 					   "B2 ENTER" :
 					   "B2 START");
 }
@@ -118,6 +106,7 @@ static const AppRouteOption *App_SelectRoute(void)
 
 		/* 启动菜单停留期间继续维护通信接收，不执行路线或电机控制。 */
 		USART_PollTx();
+		DLLN33_Poll();
 		MaixCamSerial_Poll();
 	}
 }
@@ -131,6 +120,7 @@ int main(void) {
 	//--------------------------------------
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	TimeBase_Init(); // 红外测速中断需要微秒级时间基准
+	DLLN33_Init();
 	InfraredSpeed_Init();
 	//---------------中断使能----------------
 
@@ -146,15 +136,9 @@ int main(void) {
 					   "Gray12 Ready" :
 					   "Gray8 Ready");
 
-	// /* UART2 已分配给 Jibot；首次上电仅小幅测试夹爪。 */
+	// /* UART0 已分配给 Jibot；首次上电仅小幅测试夹爪。 */
 	// (void)JibotServo_SetAngle(3, -90.0F, 1000U);
 	// (void)JibotServo_SetAngle(2, -90.0F, 1000U);
-
-	// 使能云台
-	Emm_Init(1);
-	delay_ms(10);
-	Emm_Init(2);
-	delay_ms(10);
 
 	MotorRuntime_Init();
 	printf("OK");
@@ -195,10 +179,6 @@ int main(void) {
 		}
 		if (routeOption->action == AppMenuActionArmTeach) {
 			ArmControl_RunTeachTest();
-		} else if (routeOption->action == AppMenuActionArmTargetTest) {
-			ArmTargetTest_Run();
-		} else {
-			InfraredSpeedTest_Run();
 		}
 	}
 	command = commandList[routeOption->commandIndex];
@@ -215,6 +195,7 @@ int main(void) {
 		// 更新当前时间
 		nowTime = getNowMs();
 		USART_PollTx();
+		DLLN33_Poll();
 		MaixCamSerial_Poll();
 		// 每10ms获取电机运行圈数
 		MotorRuntime_Update(nowTime, getNowUs());

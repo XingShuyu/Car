@@ -12,7 +12,7 @@ SDK位置`D:\ElecCompetation\TI\Softwares\MSPM0_SDK`
 ## 1. 项目概览
 
 - **硬件平台**: TI MSPM0G3507 (LQFP-64, ARM Cortex-M0+)
-- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信；UART2 额外接入 Jibot 六轴机械臂的基础单轴位置控制。
+- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信；UART0 接入 Jibot 六轴机械臂，UART2 接入 DL-LN33 无线模块。
 - **开发环境**: TI CCS (Code Composer Studio), SysConfig 自动生成 `ti_msp_dl_config.c/h`
 - **SDK**: mspm0_sdk@2.10.00.04
 - **编译链**: tiarmclang (LLVM) + gmake
@@ -27,11 +27,10 @@ Main/
 ├── AGENT.md                        # 本文件
 │
 ├── Arm/                            # Jibot 机械臂基础驱动
-│   ├── jibot_servo.h / .c           # UART2 位置帧发送、中心相对角到 PWM 换算
+│   ├── jibot_servo.h / .c           # UART0 位置帧发送、中心相对角到 PWM 换算
 │   ├── arm_control.h / .c           # 六轴 PWM 状态读取、菜单手动示教测试
 │   ├── arm_motion_state.h / .c      # 六轴二维 PWM 动作表的非阻塞状态机
-│   ├── arm_ik_motion.h / .c         # 自动优先钩爪朝下逆解、标定映射与非阻塞执行
-│   └── arm_target_test.h / .c        # 硬编码 IK 目标的最小测试状态机
+│   └── arm_ik_motion.h / .c         # 自动优先钩爪朝下逆解、标定映射与非阻塞执行
 │
 ├── Stage/                          # 比赛阶段与阶段状态机
 │   ├── Stage.h                     # 阶段枚举、命令结构体、commandList声明
@@ -51,13 +50,14 @@ Main/
 │   └── buzzer.h / .c               # 蜂鸣器三声提示
 │
 ├── Communication/                  # 应用层串口接收缓冲
-│   ├── bluetooth_serial.h / .c     # UART0蓝牙CRLF分帧与recv0缓冲
+│   ├── bluetooth_serial.h / .c     # UART1蓝牙CRLF分帧与recv0缓冲
+│   ├── dl_ln33.h / cc2530_zigbee.c # UART2 DL-LN33 帧收发与网络配置状态机
 │   └── maixcam_serial.h / .c       # MaixCam UART DMA接收与CRLF分帧
 │
 ├── BasicMicroLib/                  # 基础库
 │   ├── delay.h / delay.c           # 微秒/毫秒延时
 │   ├── getTime.h / getTime.c       # SysTick时间基准
-│   ├── usart.h / usart.c           # UART0 DMA收发与printf输出
+│   ├── usart.h / usart.c           # UART1蓝牙 DMA收发与printf输出
 │   └── PID.h / PID.c               # 通用PID结构体与计算函数
 │
 ├── GrayScale/                      # 灰度模块统一适配层
@@ -72,10 +72,11 @@ Main/
 │   ├── JY901S/jy901s.h / .c        # JY901S/WT901驱动
 │   └── MPU6050/mpu6050.h / .c      # MPU6050驱动
 │
+├── VL53L1X/                        # VL53L1X ToF 测距驱动（I2C0：PA28/PA31）
 ├── wdd35d4/                        # WDD35D4角位移传感器驱动（当前主流程未调用）
 ├── ultrasonic/                     # HC-SR04旧驱动（当前主流程未调用）
 ├── OLED/                           # OLED底层驱动与显示封装
-├── Emm/                            # 云台舵机串口协议
+├── Emm/                            # 历史云台舵机串口协议（当前停用）
 └── Debug/                          # CCS/SysConfig自动生成和构建产物，不手动维护
 ```
 
@@ -87,7 +88,7 @@ Main/
 
 | 区域 | 功能 |
 |------|------|
-| 初始化段 | `SYSCFG_DL_init()`、通信/中断/OLED/计时器/云台/电机/IMU初始化；计时器初始化后发送一次 Jibot 夹爪 `+5°`、1000 ms 的上电小幅测试命令 |
+| 初始化段 | `SYSCFG_DL_init()`、DL-LN33/通信/中断/OLED/计时器/电机/IMU初始化；计时器初始化后发送一次 Jibot 夹爪 `+5°`、1000 ms 的上电小幅测试命令 |
 | 启动选择 | 常驻两按键菜单：PB23切换地图/目标点候选项，PB26立即启动；地图4展开为4个Goal候选项 |
 | 主循环 | `USART_PollTx()`、`MaixCamSerial_Poll()`、`MotorRuntime_Update()`、`StageRunner_Update()` |
 
@@ -144,7 +145,7 @@ StageForward    // 编码器定距前进
 | ISR | 所在文件 | 功能 |
 |-----|----------|------|
 | `GROUP1_IRQHandler` | `Drivers/board_isr.c` | 查询GPIOA/GPIOB pending并分发给编码器和按键模块 |
-| `UART_0_INST_IRQHandler` | `Drivers/board_isr.c` | 调用 `USART_IRQHandler()` 处理UART0 DMA收发 |
+| `Bluetooth_INST_IRQHandler` | `Drivers/board_isr.c` | 调用 `USART_IRQHandler()` 处理UART1蓝牙 DMA收发 |
 | `UART_MAIXCAM_INST_IRQHandler` | `Drivers/board_isr.c` | 调用 `MaixCamSerial_IRQHandler()` |
 
 ### 4.3 主循环时序
@@ -152,10 +153,9 @@ StageForward    // 编码器定距前进
 ```
 main()
   ├── SYSCFG_DL_init()
-  ├── MaixCamSerial_Init() / BluetoothSerial_Init()
+  ├── DLLN33_Init() / MaixCamSerial_Init() / BluetoothSerial_Init()
   ├── BoardIrq_Enable() / USART_Init()
    ├── Display_Init() / Grayscale_Init() / TimeBase_Init()
-  ├── Emm_Init(1/2)
   ├── MotorRuntime_Init()
   ├── IMU_Init()
   ├── 启动菜单读取ButtonSelect事件并选择commandList与Goal
@@ -163,6 +163,7 @@ main()
   └── while (1)
        ├── nowTime = getNowMs()
        ├── USART_PollTx()
+       ├── DLLN33_Poll()
        ├── MaixCamSerial_Poll()
        ├── MotorRuntime_Update(nowTime, getNowUs())
        └── StageRunner_Update(nowTime)
@@ -189,23 +190,24 @@ main()
 
 ### 5.3 通信 (`Communication/` + `BasicMicroLib/usart.c`)
 
-- `BasicMicroLib/usart.c` 是UART0底层DMA收发与 `printf` 输出。UART0 RX 使用DMA块缓冲并在主循环轮询DMA进度，避免短帧必须等DMA块满。
-- `Communication/bluetooth_serial.c` 是UART0接收字节回调，保留原 `recv0` 缓冲语义；只有收到完整 `\r\n` 后才发布一帧，缓存内容不包含分隔符。
+- `BasicMicroLib/usart.c` 是UART1蓝牙底层DMA收发与 `printf` 输出。UART1 RX 使用DMA块缓冲并在主循环轮询DMA进度，避免短帧必须等DMA块满。
+- `Communication/bluetooth_serial.c` 是UART1接收字节回调，保留原 `recv0` 缓冲语义；只有收到完整 `\r\n` 后才发布一帧，缓存内容不包含分隔符。
+- `Communication/dl_ln33.h` / `cc2530_zigbee.c` 是UART2 DL-LN33驱动：RX 使用FIFO中断解析协议帧，TX 由 `DLLN33_Poll()` 灌入FIFO；主程序在开启 UART2 NVIC 前调用 `DLLN33_Init()`，并在启动菜单与运行主循环持续调用 `DLLN33_Poll()`。
 - `Communication/maixcam_serial.c` 是MaixCam UART DMA接收缓冲；同样使用 `\r\n` 作为分隔，主循环必须调用 `MaixCamSerial_Poll()` 及时处理未填满DMA块的短帧。
 - SysConfig DMA通道分配如下：
 
 | DMA Channel | 外设 | 方向 | 用途 |
 |-------------|------|------|------|
-| `DMA_CH0` | `UART0: UART_0` | TX | UART0/蓝牙发送、`printf` 输出 |
-| `DMA_CH1` | `UART0: UART_0` | RX | UART0/蓝牙接收 |
+| `DMA_CH0` | `UART1: Bluetooth` | TX | 蓝牙发送、`printf` 输出 |
+| `DMA_CH1` | `UART1: Bluetooth` | RX | 蓝牙接收 |
 | `DMA_CH2` | `UART3: UART_MAIXCAM` | RX | MaixCam接收 |
 | `DMA_CH3` | 未配置 | - | 预留 |
 
-SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧 `UART0/UART3` 是UART外设实例号；UART0 同时启用TX DMA和RX DMA，所以会占用两个DMA channel。`UART3` 不是 `DMA_CH3`，它只是MaixCam所用的UART外设编号。
+SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧 `UART1/UART3` 是UART外设实例号；UART1 同时启用TX DMA和RX DMA，所以会占用两个DMA channel。`UART3` 不是 `DMA_CH3`，它只是MaixCam所用的UART外设编号。
 
 ### 5.4 Jibot 机械臂控制接口 (`Arm/`)
 
-机械臂 UART2 的控制分为五层：基础单轴/组帧驱动、示教读取、PWM 动作表、自动朝下笛卡尔逆解和菜单测试。上层不得自行拼接 Jibot 协议帧，应按需求选用下列公开接口。
+机械臂 UART0 的控制分为五层：基础单轴/组帧驱动、示教读取、PWM 动作表、自动朝下笛卡尔逆解和菜单测试。上层不得自行拼接 Jibot 协议帧，应按需求选用下列公开接口。
 
 #### 5.4.1 轴号、协议范围与通信
 
@@ -220,8 +222,8 @@ SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧
 
 - 协议位置范围：`PWM 500~2500`，等效中心相对角 `-135°~+135°`，`0° = PWM 1500`，换算为 `round(1500 + angle_deg * 2000 / 270)`。正角只表示 PWM 增大，不等同于机械正方向。
 - 到位时间 `time_ms` 为 `0~9999 ms`；任意完整 Jibot 命令的最小间隔是 `JIBOT_SERVO_COMMAND_INTERVAL_MS`（当前 1 ms）。
-- UART2 SysConfig 实例为 `JibotArm`：`PB15` 是 MSPM0 TX（接控制器 RX），`PB16` 是 MSPM0 RX（接控制器 TX），配置为 `115200 8N1`、无流控，双方必须共地。
-- UART2 当前只供 Jibot 使用。`Communication/cc2530_zigbee.c` 是历史源码，运行时禁止初始化或调用；恢复 DL-LN33 前必须重新规划 SysConfig 与中断分发。
+- UART0 SysConfig 实例为 `JibotArm`：`PA0` 是 MSPM0 TX（接控制器 RX），`PA1` 是 MSPM0 RX（接控制器 TX），配置为 `115200 8N1`、无流控，双方必须共地。
+- UART2 SysConfig 实例为 `DL_LN33`：`PB15` 是 MSPM0 TX（接模块 RX），`PB16` 是 MSPM0 RX（接模块 TX），配置为 `115200 8N1`、无流控。`Communication/cc2530_zigbee.c` 提供其运行时驱动，主程序会初始化并轮询。
 
 #### 5.4.2 基础驱动：`Arm/jibot_servo.h`
 
@@ -262,17 +264,6 @@ void ArmIkMotion_Reset(void);
 - `ArmIkMotion_SetCalibration()` / `ArmIkMotion_GetCalibration()` 读写 `ArmIkMotion_Calibration`。只能在 IK 不运行时设置；可校准几何尺寸、q1~q3 模型限位、ID0~3 零位/方向/PWM 限位、ID4/5 固定 PWM 与位置读取超时。
 
 阶段命令使用 `StageArmIkMotionData { yawDeg, xMm, yMm }` 和 `STAGE_CMD_ARM_IK_MOTION(&data)`。阶段开始会刹停小车；不可达显示 `CANT REACH`，其余启动或运行失败显示 `ARM IK FAIL`。
-
-#### 5.4.5 菜单 IK 测试：`Arm/arm_target_test.h`
-
-| 接口 | 用途 |
-|---|---|
-| `ArmTargetTest_SubmitTarget(yaw_deg, x_mm, y_mm)` | 空闲、完成或失败状态下提交一次自动朝下 IK 目标。 |
-| `ArmTargetTest_Update()` | 推进并返回 `Idle/Moving/Completed/CannotReach/Failed`。 |
-| `ArmTargetTest_Reset()` | 重置测试与 IK 状态，不发送停止命令。 |
-| `ArmTargetTest_Run()` | 菜单 `ARM TARGET TEST` 入口；函数内硬编码 `yaw_deg/x_mm/y_mm`，提交后仅轮询状态，B1 退出。 |
-
-测试 OLED 状态：`TARGET MOVING`、`TARGET REACHED`、`CANT REACH`、`TARGET START FAIL`。该测试不读取 MaixCam/蓝牙数据，也不使用路线动作表。
 
 ### 5.5 WDD35D4与超声波
 

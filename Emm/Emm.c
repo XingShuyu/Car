@@ -1,4 +1,11 @@
 #include "Emm.h"
+#include "ti_msp_dl_config.h"
+
+/*
+ * 云台串口已从当前硬件配置中停用，以将 UART1 的 PA8/PA9 分配给蓝牙。
+ * 保留原驱动，未来恢复名为 Emm 的 SysConfig 实例后可重新参与编译。
+ */
+#if defined(Emm_INST)
 #include "../BasicMicroLib/usart.h"
 #include <stdio.h>
 #include <string.h>
@@ -76,3 +83,5 @@ void Emm_Init(int Addr) {
 	emm_Data.checkSum = 0x6B;
 	Emm_SendData(&emm_Data);
 }
+
+#endif /* defined(Emm_INST) */

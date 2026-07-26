@@ -1,6 +1,7 @@
 #include "Drivers/board_isr.h"
 
 #include "BasicMicroLib/usart.h"
+#include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"
 #include "InfraredSpeed/infrared_speed.h"
@@ -13,6 +14,7 @@ void BoardIrq_Enable(void)
 	NVIC_EnableIRQ(MotorMonitor_GPIOA_INT_IRQN);
 	NVIC_EnableIRQ(GPIOB_INT_IRQn);
 	NVIC_EnableIRQ(UART_MAIXCAM_INST_INT_IRQN); // 初始化maixcam
+	NVIC_EnableIRQ(DL_LN33_INST_INT_IRQN);
 }
 
 // MSPM0 的 GPIOA/GPIOB 外部中断属于 GROUP1 向量，
@@ -32,9 +34,15 @@ void GROUP1_IRQHandler(void)
 }
 
 // 串口的中断服务函数
-void UART_0_INST_IRQHandler(void)
+void Bluetooth_INST_IRQHandler(void)
 {
 	USART_IRQHandler();
+}
+
+// DL-LN33 的 UART2 接收与错误中断。
+void DL_LN33_INST_IRQHandler(void)
+{
+	DLLN33_IRQHandler();
 }
 
 // maixcam的串口中断服务

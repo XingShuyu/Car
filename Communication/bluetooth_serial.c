@@ -5,7 +5,7 @@
 
 #define BLUETOOTH_SERIAL_BUFFER_SIZE 128U
 
-// UART0 蓝牙接收帧缓存，recv0_buff 保存最近一帧完整 CRLF 数据。
+// UART1 蓝牙接收帧缓存，recv0_buff 保存最近一帧完整 CRLF 数据。
 static volatile uint8_t recv0_buff[BLUETOOTH_SERIAL_BUFFER_SIZE] = {0};
 static volatile uint16_t recv0_length = 0;
 static volatile uint8_t recv0_flag = 0;
