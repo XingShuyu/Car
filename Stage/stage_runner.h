@@ -15,6 +15,10 @@ typedef struct StageRunner_Config {
 	uint8_t sync_run_id;
 } StageRunner_Config;
 
+/**
+ * @brief 初始化阶段执行器。
+ * @param config 非空；全局基础/转向速度由 main.c 提供。
+ */
 void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config);
 bool StageRunner_Update(uint32_t nowTime);

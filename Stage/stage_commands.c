@@ -17,7 +17,7 @@ static const StageArmMotionData armDemoData = {
 };
 
 static const StageCommand command0[] = {
-	STAGE_CMD(StageCross),
+	STAGE_CMD_DATA(StageForward, (&(StageForwardData){11000.0, 250})),
 	// STAGE_CMD_NUM(StageForward, 500),
 	// STAGE_CMD_NUM(StageTurn, 90.0),
 	// STAGE_CMD_NUM(StageForward, 400),
