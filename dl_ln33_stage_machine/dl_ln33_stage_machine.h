@@ -1,3 +1,4 @@
+/* Project-root DL-LN33 message-driven stage machine. */
 #ifndef DL_LN33_STAGE_MACHINE_H
 #define DL_LN33_STAGE_MACHINE_H
 

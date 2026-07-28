@@ -3,7 +3,6 @@
 #include "BasicMicroLib/delay.h"
 #include "BasicMicroLib/getTime.h"
 #include "BasicMicroLib/usart.h"
-#include "Communication/car_sync.h"
 #include "Communication/dl_ln33.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/board_isr.h"
@@ -16,6 +15,8 @@
 #include "Motor/motor_step_test.h"
 #include "OLED/display.h"
 #include "Stage/Stage.h"
+#include "dl_ln33_stage_machine/car_sync.h"
+#include "dl_ln33_stage_machine/car_sync_setup.h"
 #include "Stage/stage_runner.h"
 #include "ti_msp_dl_config.h"
 #include <stdint.h>
@@ -122,71 +123,6 @@ static const AppRouteOption *App_SelectRoute(void)
 	}
 }
 
-static uint16_t App_GetCarSyncLocalAddress(CarSyncRole role)
-{
-	if (role == CarSyncRoleLeader) {
-		return CARSYNC_LEADER_ADDRESS;
-	}
-	if (role == CarSyncRoleFollower) {
-		return CARSYNC_FOLLOWER_ADDRESS;
-	}
-	return 0U;
-}
-
-static uint16_t App_GetCarSyncPeerAddress(CarSyncRole role)
-{
-	if (role == CarSyncRoleLeader) {
-		return CARSYNC_FOLLOWER_ADDRESS;
-	}
-	if (role == CarSyncRoleFollower) {
-		return CARSYNC_LEADER_ADDRESS;
-	}
-	return 0U;
-}
-
-static bool App_SetupCarSyncNetwork(CarSyncRole role)
-{
-	DLLN33_NetworkConfig networkConfig;
-	DLLN33_NetworkSetupState setupState;
-	char line[21];
-
-	if (role == CarSyncRoleSolo) {
-		return true;
-	}
-
-	networkConfig.address = App_GetCarSyncLocalAddress(role);
-	networkConfig.network_id = CARSYNC_NETWORK_ID;
-	networkConfig.channel = CARSYNC_CHANNEL;
-
-	Display_Clear();
-	Display_ShowString(0, 0, "ZB SETUP");
-	if (!DLLN33_BeginNetworkSetup(&networkConfig)) {
-		Display_ShowString(1, 0, "ZB BEGIN FAIL");
-		delay_ms(1200);
-		return false;
-	}
-
-	while (true) {
-		USART_PollTx();
-		DLLN33_Poll();
-		MaixCamSerial_Poll();
-
-		setupState = DLLN33_GetNetworkSetupState();
-		if (setupState == DLLN33_NETWORK_SETUP_COMPLETE) {
-			Display_ShowString(1, 0, "ZB OK");
-			delay_ms(500);
-			return true;
-		}
-		if (setupState == DLLN33_NETWORK_SETUP_FAILED) {
-			snprintf(line, sizeof(line), "ZB FAIL %02X",
-					 (unsigned int)DLLN33_GetNetworkSetupError());
-			Display_ShowString(1, 0, line);
-			delay_ms(1500);
-			return false;
-		}
-	}
-}
-
 int main(void) {
 	const AppRouteOption *routeOption;
 	const StageCommand *command;
@@ -252,7 +188,7 @@ int main(void) {
 	while (true) {
 		routeOption = App_SelectRoute();
 		if (routeOption->action == AppMenuActionRoute &&
-			App_SetupCarSyncNetwork(routeOption->syncRole)) {
+			CarSync_SetupNetwork(routeOption->syncRole)) {
 			break;
 		}
 		if (routeOption->action == AppMenuActionArmTeach) {
@@ -262,7 +198,7 @@ int main(void) {
 	command = commandList[routeOption->commandIndex];
 	runConfig = stageConfig;
 	runConfig.sync_role = routeOption->syncRole;
-	runConfig.sync_peer_address = App_GetCarSyncPeerAddress(routeOption->syncRole);
+	runConfig.sync_peer_address = CarSync_GetPeerAddress(routeOption->syncRole);
 	runConfig.sync_run_id = CARSYNC_CROSS_RUN_ID;
 
 	/* 选择等待时间不应影响出发时的航向零点。 */

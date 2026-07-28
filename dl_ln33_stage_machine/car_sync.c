@@ -1,4 +1,4 @@
-#include "Communication/car_sync.h"
+#include "dl_ln33_stage_machine/car_sync.h"
 
 #include "BasicMicroLib/getTime.h"
 #include "Communication/dl_ln33.h"
@@ -94,6 +94,28 @@ void CarSync_ClearReceived(void)
 CarSyncRole CarSync_GetRole(void)
 {
 	return s_role;
+}
+
+uint16_t CarSync_GetLocalAddress(CarSyncRole role)
+{
+	if (role == CarSyncRoleLeader) {
+		return CARSYNC_LEADER_ADDRESS;
+	}
+	if (role == CarSyncRoleFollower) {
+		return CARSYNC_FOLLOWER_ADDRESS;
+	}
+	return 0U;
+}
+
+uint16_t CarSync_GetPeerAddress(CarSyncRole role)
+{
+	if (role == CarSyncRoleLeader) {
+		return CARSYNC_FOLLOWER_ADDRESS;
+	}
+	if (role == CarSyncRoleFollower) {
+		return CARSYNC_LEADER_ADDRESS;
+	}
+	return 0U;
 }
 
 CarSyncNotifyStatus CarSync_SendCrossDone(uint32_t now_ms)

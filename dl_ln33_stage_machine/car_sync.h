@@ -1,3 +1,4 @@
+/* Project-root multi-car synchronization protocol for stage commands. */
 #ifndef CAR_SYNC_H
 #define CAR_SYNC_H
 
@@ -28,6 +29,8 @@ typedef enum CarSyncNotifyStatus {
 void CarSync_Init(CarSyncRole role, uint16_t peer_address, uint8_t run_id);
 void CarSync_ClearReceived(void);
 CarSyncRole CarSync_GetRole(void);
+uint16_t CarSync_GetLocalAddress(CarSyncRole role);
+uint16_t CarSync_GetPeerAddress(CarSyncRole role);
 CarSyncNotifyStatus CarSync_SendCrossDone(uint32_t now_ms);
 bool CarSync_WaitCrossDone(uint32_t now_ms);
 bool CarSync_SendAck(void);

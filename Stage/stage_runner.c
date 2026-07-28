@@ -8,7 +8,7 @@
 #include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
-#include "Communication/car_sync.h"
+#include "dl_ln33_stage_machine/car_sync.h"
 #include "Communication/maixcam_protocol.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"

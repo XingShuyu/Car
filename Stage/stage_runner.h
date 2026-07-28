@@ -4,7 +4,7 @@
 #include <stdbool.h>
 #include <stdint.h>
 
-#include "Communication/car_sync.h"
+#include "dl_ln33_stage_machine/car_sync.h"
 #include "Stage/Stage.h"
 
 typedef struct StageRunner_Config {
