@@ -18,12 +18,13 @@
 #include "OLED/display.h"
 #include "Stage/Stage.h"
 #include "Stage/stage_runner.h"
+#include "wdd35d4/wd35d4.h"
 #include "ti_msp_dl_config.h"
 #include <stdint.h>
 #include <stdio.h>
 
 static const StageRunner_Config stageConfig = {
-	.base_speed_mmps = 300,
+	.base_speed_mmps = 600,
 	.round_speed_mmps = 150,
 	.sync_role = CarSyncRoleSolo,
 	.sync_peer_address = 0U,
@@ -58,6 +59,7 @@ static const AppRouteOption appRouteOptions[] = {
 	{AppMenuActionRoute, 4U, 0, CarSyncRoleSolo},
 	{AppMenuActionRoute, 5U, 0, CarSyncRoleLeader},
 	{AppMenuActionRoute, 5U, 0, CarSyncRoleFollower},
+	{AppMenuActionRoute, 6U, 0, CarSyncRoleSolo},
 	{AppMenuActionArmTeach, 0U, 0, CarSyncRoleSolo},
 };
 
@@ -81,6 +83,8 @@ static void App_ShowRouteMenu(uint8_t optionIndex)
 		snprintf(line, sizeof(line), "CROSS LEADER");
 	} else if (option->syncRole == CarSyncRoleFollower) {
 		snprintf(line, sizeof(line), "CROSS FOLLOWER");
+	} else if (option->commandIndex == 6U) {
+		snprintf(line, sizeof(line), "ARM GRAB TEST");
 	} else if (option->commandIndex == 3U) {
 		snprintf(line, sizeof(line), "MAP 4 TARGET %d", option->goal + 1);
 	} else {
@@ -198,6 +202,8 @@ int main(void) {
 	//                初始化
 	//--------------------------------------
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
+	/* WDD35D4使用PB17/ADC1 CH4，必须在SysConfig完成外设配置后初始化。 */
+	WDD35D4_Init();
 	TimeBase_Init(); // 红外测速中断需要微秒级时间基准
 	DLLN33_Init();
 	InfraredSpeed_Init();

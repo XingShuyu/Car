@@ -1,8 +1,10 @@
 #include "Stage/stage_runner.h"
 
+#include <float.h>
 #include <math.h>
 #include <stdbool.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 #include "Arm/arm_ik_motion.h"
 #include "Arm/arm_motion_state.h"
@@ -18,6 +20,8 @@
 #include "IMU/imu.h"
 #include "Motor/motor_runtime.h"
 #include "OLED/display.h"
+#include "ti_msp_dl_config.h"
+#include "wdd35d4/wd35d4.h"
 
 #define STAGE_RUNNER_UPDATE_INTERVAL_MS 10U
 #define STAGE_RUNNER_MAIXCAM_FRAME_SIZE 32U
@@ -28,6 +32,9 @@
 #define STAGE_RUNNER_TRACK_MIN_AVG_MMPS 170.0f
 #define STAGE_RUNNER_TRACK_LOW_SPEED_DURATION_MS 1000U
 #define STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS 100U
+#define STAGE_RUNNER_MAIXCAM_GRAB_REQUEST "Start\r\n"
+#define STAGE_RUNNER_MAIXCAM_GRAB_REQUEST_LENGTH \
+	((uint16_t)(sizeof(STAGE_RUNNER_MAIXCAM_GRAB_REQUEST) - 1U))
 
 typedef enum StageRunner_MaixCamResult {
 	StageRunnerMaixCamIgnored = 0,
@@ -66,6 +73,19 @@ static bool TrackingLowSpeedActive = false;
 static uint32_t TrackingLowSpeedStartTime = 0U;
 static uint32_t lastTrackingDisplayTime = 0U;
 static ArmMotionState armMotionState;
+
+/*
+ * PB17 is normally reserved as the unused WDD35D4 ADC input.  The grab-test
+ * completion event owns it instead: switch the pin to GPIO only at that
+ * point, drive it low while enabling the output, then assert it.
+ */
+static void StageRunner_AssertArmTargetSignal(void) {
+	DL_GPIO_initDigitalOutput(GPIO_WDD35D4_ADC_IOMUX_C4);
+	DL_GPIO_clearPins(GPIO_WDD35D4_ADC_C4_PORT, GPIO_WDD35D4_ADC_C4_PIN);
+	DL_GPIO_enableOutput(GPIO_WDD35D4_ADC_C4_PORT,
+					 GPIO_WDD35D4_ADC_C4_PIN);
+	DL_GPIO_setPins(GPIO_WDD35D4_ADC_C4_PORT, GPIO_WDD35D4_ADC_C4_PIN);
+}
 
 static void StageRunner_ShowTrackingTelemetry(float targetLeft,
 										  float targetRight, float irr,
@@ -217,6 +237,52 @@ static void StageRunner_CopyText(char *dest, uint16_t destSize,
 	dest[copyLength] = '\0';
 }
 
+static bool StageRunner_IsFinite(float value) {
+	return (value == value) && (value <= FLT_MAX) && (value >= -FLT_MAX);
+}
+
+/*
+ * MaixCam 抓取测试仅接受一帧完整的 "yaw,distance" 文本。串口层已剥离
+ * CRLF；此处要求两个浮点数之间只有一个逗号，且不允许额外字符。
+ */
+static bool StageRunner_ParseMaixCamGrabPose(const uint8_t *frame,
+										 uint16_t length, float *yawDeg,
+										 float *xMm) {
+	char text[STAGE_RUNNER_MAIXCAM_FRAME_SIZE + 1U];
+	char *end;
+	char *secondValue;
+	float parsedYaw;
+	float parsedX;
+	uint16_t index;
+
+	if ((frame == NULL) || (yawDeg == NULL) || (xMm == NULL) ||
+		(length == 0U) || (length >= sizeof(text)) ||
+		(frame[0] == ' ') || (frame[0] == '\t')) {
+		return false;
+	}
+
+	for (index = 0U; index < length; index++) {
+		text[index] = (char)frame[index];
+	}
+	text[length] = '\0';
+
+	parsedYaw = strtof(text, &end);
+	if ((end == text) || (*end != ',')) {
+		return false;
+	}
+
+	secondValue = end + 1;
+	parsedX = strtof(secondValue, &end);
+	if ((end == NULL) || (*end != '\0') || !StageRunner_IsFinite(parsedYaw) ||
+		!StageRunner_IsFinite(parsedX) || (end == secondValue)) {
+		return false;
+	}
+
+	*yawDeg = parsedYaw;
+	*xMm = parsedX;
+	return true;
+}
+
 static StageRunner_MaixCamResult
 StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 								uint32_t nowTime) {
@@ -309,6 +375,12 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 
 	BaseSpeed = (config != NULL) ? config->base_speed_mmps : 0;
 	RoundSpeed = (config != NULL) ? config->round_speed_mmps : 0;
+	if (config != NULL) {
+		syncRole = config->sync_role;
+		syncPeerAddress = config->sync_peer_address;
+		syncRunId = config->sync_run_id;
+	}
+	CarSync_Init(syncRole, syncPeerAddress, syncRunId);
 
 	lastStageTime = getNowMs();
 }
@@ -473,61 +545,102 @@ bool StageRunner_Update(uint32_t nowTime) {
 		break;
 	}
 	case StageCross: {
-		// StageCross
+		// // StageCross
+		// if (StageFlag == 0) {
+		// 	MotorRuntime_SetTargetWheelMmps(BaseSpeed, BaseSpeed);
+		// 	MotorRuntime_ResetDistance();
+		// 	StageFlag++;
+		// }
+		// if (StageFlag > 5) {
+		// 	printf("l1: %.2f", distence[0]);
+		// 	printf("l2: %.2f", distence[1]);
+		// 	StageFlag = 5;
+		// }
+		// if (StageFlag > 0 && StageFlag <= 5) {
+		// 	grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+		// 	float irr = Grayscale_Line(&grayscalePid, grayscale);
+
+		// 	if (Grayscale_LastReadOk() &&
+		// 		StageRunner_CountOnlineSnapshot(grayscale) == 0) {
+		// 		MotorRuntime_SetTargetWheelMmps(0, 0);
+		// 		MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+		// 		Display_ShowString(0, 0, "Cross Done");
+		// 		StageFlag = 0;
+		// 		StageIndex++;
+		// 		lastStageTime = nowTime;
+		// 		break;
+		// 	}
+
+		// 	MotorRuntime_SetTargetRobot(BaseSpeed, irr);
+		// 	if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+		// 		shouldStopRun = true;
+		// 		break;
+		// 	}
+		// }
+		// if (StageFlag > 5) {
+		// 	StageFlag = 0;
+		// 	StageIndex++;
+		// }
+		// if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
+		// 	 Grayscale_Cross(grayscale, 1)) &&
+		// 	StageFlag % 2 == 1) {
+
+		// 	if (StageFlag == 3) {
+		// 		distence[0] = MotorRuntime_GetLeftDistanceMm() - 18;
+		// 	}
+		// 	if (StageFlag == 5) {
+		// 		distence[1] = MotorRuntime_GetLeftDistanceMm() - 18;
+		// 	}
+		// 	MotorRuntime_ResetDistance();
+		// 	StageFlag++;
+		// }
+		// if (!(Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
+		// 	  Grayscale_Cross(grayscale, 1)) &&
+		// 	StageFlag % 2 == 0) {
+		// 	StageFlag++;
+		// }
+		// break;
+		static uint32_t startTime;
 		if (StageFlag == 0) {
 			MotorRuntime_SetTargetWheelMmps(BaseSpeed, BaseSpeed);
 			MotorRuntime_ResetDistance();
+			startTime = getNowMs();
 			StageFlag++;
 		}
-		if (StageFlag > 5) {
-			printf("l1: %.2f", distence[0]);
-			printf("l2: %.2f", distence[1]);
-			StageFlag = 5;
-		}
-		if (StageFlag > 0 && StageFlag <= 5) {
+		if (StageFlag > 0) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
 
 			if (Grayscale_LastReadOk() &&
-				StageRunner_CountOnlineSnapshot(grayscale) == 0) {
+				StageRunner_CountOnlineSnapshot(grayscale) == 6) {
 				MotorRuntime_SetTargetWheelMmps(0, 0);
 				MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+				char temp[STAGE_RUNNER_OLED_TEXT_SIZE];
+				snprintf(temp, sizeof(temp), "Time: %.2f",
+						 (float)(getNowMs() - startTime) / 1000.0f);
+				Display_ShowString(1, 0, temp);
 				Display_ShowString(0, 0, "Cross Done");
 				StageFlag = 0;
 				StageIndex++;
 				lastStageTime = nowTime;
 				break;
 			}
-
 			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
-			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
-				shouldStopRun = true;
-				break;
-			}
-		}
-		if (StageFlag > 5) {
-			StageFlag = 0;
-			StageIndex++;
-		}
-		if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
-			 Grayscale_Cross(grayscale, 1)) &&
-			StageFlag % 2 == 1) {
+			float angle_deg;
+			char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+			int dataLength;
 
-			if (StageFlag == 3) {
-				distence[0] = MotorRuntime_GetLeftDistanceMm() - 18;
+			/* 任一传感器读取失败时丢弃本帧，绝不发送未初始化或旧数据。 */
+			if (WDD35D4_ReadAngleDeg(&angle_deg) && IMU_ReadAll(&IMUData)) {
+				dataLength = snprintf(temp, sizeof(temp), "%.2f,%.2f\r\n",
+									  IMUData.ax, angle_deg);
+				if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+					MaixCamSerial_SendBytes((const uint8_t *)temp,
+										(uint16_t)dataLength);
+				}
 			}
-			if (StageFlag == 5) {
-				distence[1] = MotorRuntime_GetLeftDistanceMm() - 18;
-			}
-			MotorRuntime_ResetDistance();
-			StageFlag++;
+			break;
 		}
-		if (!(Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
-			  Grayscale_Cross(grayscale, 1)) &&
-			StageFlag % 2 == 0) {
-			StageFlag++;
-		}
-		break;
 	}
 	case StageStartJudge: {
 		// StageStartJudge
@@ -699,7 +812,6 @@ bool StageRunner_Update(uint32_t nowTime) {
 				MotorRuntime_SetTargetWheelMmps(stageSpeed - 20 * IMUData.yaw,
 												stageSpeed + 20 * IMUData.yaw);
 			}
-			char temp[21];
 		}
 		break;
 	}
@@ -888,6 +1000,76 @@ bool StageRunner_Update(uint32_t nowTime) {
 		} else if (armStatus == ArmMotionStateFailed) {
 			Display_ShowString(0, 0, "ARM IK FAIL");
 			shouldStopRun = true;
+		}
+		break;
+	}
+	case StageArmMaixCamGrab: {
+		const StageArmMaixCamGrabData *grabData =
+			(const StageArmMaixCamGrabData *)stageData;
+		uint8_t frame[STAGE_RUNNER_MAIXCAM_FRAME_SIZE + 1U];
+		uint16_t frameLength;
+		ArmMotionState_Status armStatus;
+
+		if (StageFlag == 0) {
+			/* 识别和抓取期间车辆始终制动，避免机械臂碰撞。 */
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			if (grabData == NULL) {
+				Display_ShowString(0, 0, "GRAB CFG FAIL");
+				shouldStopRun = true;
+				break;
+			}
+
+			/* 丢弃待命动作期间可能已接收的旧完整帧。 */
+			MaixCamSerial_ClearFlag();
+			MaixCamSerial_SendBytes(
+				(const uint8_t *)STAGE_RUNNER_MAIXCAM_GRAB_REQUEST,
+				STAGE_RUNNER_MAIXCAM_GRAB_REQUEST_LENGTH);
+			Display_Clear();
+			Display_ShowString(0, 0, "MAIX GRAB WAIT");
+			Display_ShowString(1, 0, "Start sent");
+			StageFlag = 1;
+		}
+
+		if ((StageFlag == 1) &&
+			MaixCamSerial_TryReadFrame(frame, sizeof(frame), &frameLength)) {
+			float yawDeg;
+			float xMm;
+			char line[STAGE_RUNNER_OLED_TEXT_SIZE];
+
+			if (!StageRunner_ParseMaixCamGrabPose(frame, frameLength, &yawDeg,
+													  &xMm)) {
+				Display_ShowString(0, 0, "MAIX DATA ERR");
+				Display_ShowString(1, 0, "WAIT NEXT FRAME");
+				break;
+			}
+
+			if (!ArmIkMotion_Start(yawDeg, xMm-10, grabData->targetYmm)) {
+				Display_ShowString(0, 0,
+					ArmIkMotion_LastStartWasReachabilityFailure() ?
+						"CANT REACH" : "ARM IK FAIL");
+				shouldStopRun = true;
+				break;
+			}
+
+			snprintf(line, sizeof(line), "Y:%.1f X:%.0f", yawDeg, xMm);
+			Display_ShowString(0, 0, "ARM IK RUN");
+			Display_ShowString(1, 0, line);
+			StageFlag = 2;
+		}
+
+		if (StageFlag == 2) {
+			armStatus = ArmIkMotion_Update();
+			if (armStatus == ArmMotionStateCompleted) {
+				/* MaixCam 目标抓取位到达后置高 PB17 并提示一次。 */
+				StageRunner_AssertArmTargetSignal();
+				Buzzer_Beep();
+				StageFlag = 0;
+				StageIndex++;
+			} else if (armStatus == ArmMotionStateFailed) {
+				Display_ShowString(0, 0, "ARM IK FAIL");
+				shouldStopRun = true;
+			}
 		}
 		break;
 	}

@@ -19,24 +19,24 @@
 #define ARM_IK_MOTION_DEFAULT_READ_TIMEOUT (20U)
 
 /*
- * 默认标定：ID0 的 1500 PWM 指向车头正前方；ID1~3 的模型正方向分别
- * 映射为 -/+/- 的 PWM 正方向。所有零位均为 1500 PWM，ID4/5 固定居中。
- * 实机标定后可通过 ArmIkMotion_SetCalibration() 覆盖这些默认值。
+ * 默认标定：ID0 的 1500 PWM 指向车头正前方；ID0~3 的模型正方向分别
+ * 映射为 -/+/-/+ 的 PWM 正方向。爪尖相对 S3 固定，S4/S5 不参与控制。
+ * S3 与 S1/S2 配合，优先保持爪尖竖直向下。实机标定后可通过
+ * ArmIkMotion_SetCalibration() 覆盖这些默认值。
  */
 static ArmIkMotion_Calibration armIkMotionCalibration = {
 	91.0F,
 	104.0F,
 	74.5F,
-	174.0F,
+	178.0F,
 	{-130.0F, -130.0F, -130.0F},
 	{130.0F, 130.0F, 130.0F},
 	{0.0F, 0.0F, 0.0F, 0.0F},
-	{1, -1, 1, -1},
+	{-1, 1, -1, 1},
 	{JIBOT_SERVO_MIN_PWM, JIBOT_SERVO_MIN_PWM,
 	 JIBOT_SERVO_MIN_PWM, JIBOT_SERVO_MIN_PWM},
 	{JIBOT_SERVO_MAX_PWM, JIBOT_SERVO_MAX_PWM,
 	 JIBOT_SERVO_MAX_PWM, JIBOT_SERVO_MAX_PWM},
-	{1500U, 1500U},
 	ARM_IK_MOTION_DEFAULT_READ_TIMEOUT,
 };
 
@@ -134,8 +134,7 @@ static bool ArmIkMotion_IsCalibrationValid(
 		}
 	}
 
-	return ArmIkMotion_IsValidPwm(calibration->fixedPwm[0]) &&
-		   ArmIkMotion_IsValidPwm(calibration->fixedPwm[1]);
+	return true;
 }
 
 static bool ArmIkMotion_ModelDegToPwm(uint8_t axis, float modelDeg,
@@ -680,10 +679,6 @@ bool ArmIkMotion_Start(float yaw_deg, float x_mm, float y_mm)
 		}
 	}
 
-	armIkMotionPwmFrame[0][JIBOT_SERVO_ID_WRIST_ORIENTATION] =
-		armIkMotionCalibration.fixedPwm[0];
-	armIkMotionPwmFrame[0][JIBOT_SERVO_ID_GRIPPER] =
-		armIkMotionCalibration.fixedPwm[1];
 	sequence.pwmData = &armIkMotionPwmFrame[0][0];
 	sequence.frameCount = 1U;
 

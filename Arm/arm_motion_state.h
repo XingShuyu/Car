@@ -22,7 +22,7 @@
  * 动作表描述。
  *
  * pwmData 指向一个二维数组 pwm[frameCount][JIBOT_SERVO_COUNT] 的首元素。
- * 第一维为动作序号，第二维固定为六个关节 ID；即
+ * 第一维为动作序号，第二维固定为四个关节 ID；即
  * pwmData[frameIndex * JIBOT_SERVO_COUNT + id] 是第 frameIndex 行中 ID
  * 为 id 的目标 PWM。
  */
@@ -42,7 +42,7 @@ typedef enum ArmMotionState_Status {
 	ArmMotionStateFailed,
 } ArmMotionState_Status;
 
-/** 非阻塞六轴动作状态机的运行数据。 */
+/** 非阻塞四轴动作状态机的运行数据。 */
 typedef struct ArmMotionState {
 	ArmMotionState_Sequence sequence;
 	uint16_t frameIndex;
@@ -53,10 +53,10 @@ typedef struct ArmMotionState {
 /**
  * @brief 初始化并立即下发动作表的第 0 列。
  *
- * 每一行会向六个舵机同时下发原始 PWM 位置命令。调用方应在主循环中持续
+ * 每一行会向四个舵机同时下发原始 PWM 位置命令。调用方应在主循环中持续
  * 调用 ArmMotionState_Update()；状态机每 500 ms 读取全部关节。只要任一
  * 关节没有进入 ARM_MOTION_STATE_PWM_TOLERANCE 误差范围，或查询失败，
- * 就重新发送当前行的组位置命令；六轴全部到位后才下发下一行。
+ * 就重新发送当前行的组位置命令；四轴全部到位后才下发下一行。
  *
  * @param state 非空的状态机实例。
  * @param sequence 非空且 frameCount 大于 0 的二维动作表描述。
@@ -68,7 +68,7 @@ bool ArmMotionState_Start(ArmMotionState *state,
 						  uint32_t now_ms);
 
 /**
- * @brief 推进一次状态机；位置查询时最多会阻塞六次单轴查询超时时间。
+ * @brief 推进一次状态机；位置查询时最多会阻塞四次单轴查询超时时间。
  * @return 当前运行、完成或失败状态。
  */
 ArmMotionState_Status ArmMotionState_Update(ArmMotionState *state,

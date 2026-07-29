@@ -78,7 +78,6 @@ static void ArmControl_ShowTeachCaptured(const ArmControl_PwmState *state,
 								"PWM READ PARTIAL");
 	ArmControl_ShowPwmValue(1U, 0U, state);
 	ArmControl_ShowPwmValue(2U, 2U, state);
-	ArmControl_ShowPwmValue(3U, 4U, state);
 	Display_ShowString(5U, 0U, "B2 RELEASE");
 	Display_ShowString(6U, 0U, "B1 EXIT");
 }

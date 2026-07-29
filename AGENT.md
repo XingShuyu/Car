@@ -12,7 +12,7 @@ SDK位置`D:\ElecCompetation\TI\Softwares\MSPM0_SDK`
 ## 1. 项目概览
 
 - **硬件平台**: TI MSPM0G3507 (LQFP-64, ARM Cortex-M0+)
-- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信；UART0 接入 Jibot 六轴机械臂，UART2 接入 DL-LN33 无线模块。
+- **功能**: 循迹小车，8/12路灰度传感器循迹 + IMU转角控制 + 编码器速度闭环 + OLED显示 + UART通信；UART0 接入 Jibot 四轴机械臂，UART2 接入 DL-LN33 无线模块。
 - **开发环境**: TI CCS (Code Composer Studio), SysConfig 自动生成 `ti_msp_dl_config.c/h`
 - **SDK**: mspm0_sdk@2.10.00.04
 - **编译链**: tiarmclang (LLVM) + gmake
@@ -28,13 +28,13 @@ Main/
 │
 ├── Arm/                            # Jibot 机械臂基础驱动
 │   ├── jibot_servo.h / .c           # UART0 位置帧发送、中心相对角到 PWM 换算
-│   ├── arm_control.h / .c           # 六轴 PWM 状态读取、菜单手动示教测试
-│   ├── arm_motion_state.h / .c      # 六轴二维 PWM 动作表的非阻塞状态机
+│   ├── arm_control.h / .c           # 四轴 PWM 状态读取、菜单手动示教测试
+│   ├── arm_motion_state.h / .c      # 四轴二维 PWM 动作表的非阻塞状态机
 │   └── arm_ik_motion.h / .c         # 自动优先钩爪朝下逆解、标定映射与非阻塞执行
 │
 ├── Stage/                          # 比赛阶段与阶段状态机
 │   ├── Stage.h                     # 阶段枚举、命令结构体、commandList声明
-│   ├── stage_commands.c            # command0~command3命令序列定义
+│   ├── stage_commands.c            # command0~command6命令序列定义
 │   └── stage_runner.h / .c         # 阶段switch-case执行器
 │
 ├── Motor/                          # 电机驱动、编码器与速度闭环
@@ -89,7 +89,7 @@ Main/
 | 区域 | 功能 |
 |------|------|
 | 初始化段 | `SYSCFG_DL_init()`、DL-LN33/通信/中断/OLED/计时器/电机/IMU初始化；计时器初始化后发送一次 Jibot 夹爪 `+5°`、1000 ms 的上电小幅测试命令 |
-| 启动选择 | 常驻两按键菜单：PB23切换地图/目标点候选项，PB26立即启动；地图4展开为4个Goal候选项 |
+| 启动选择 | 常驻两按键菜单：PB23切换地图/目标点候选项，PB26立即启动；地图4展开为4个Goal候选项；地图7为 `ARM GRAB TEST` |
 | 主循环 | `USART_PollTx()`、`MaixCamSerial_Poll()`、`MotorRuntime_Update()`、`StageRunner_Update()` |
 
 当前基础速度配置在 `main.c` 的 `stageConfig`：
@@ -98,7 +98,7 @@ Main/
 
 ### 3.2 `Stage/`
 
-`Stage/Stage.h` 定义阶段枚举与命令结构，`Stage/stage_commands.c` 定义5套命令序列：
+`Stage/Stage.h` 定义阶段枚举与命令结构，`Stage/stage_commands.c` 定义 7 套命令序列：
 
 ```c
 extern const StageCommand *const commandList[STAGE_COMMAND_LIST_COUNT];
@@ -194,6 +194,7 @@ main()
 - `Communication/bluetooth_serial.c` 是UART1接收字节回调，保留原 `recv0` 缓冲语义；只有收到完整 `\r\n` 后才发布一帧，缓存内容不包含分隔符。
 - `Communication/dl_ln33.h` / `cc2530_zigbee.c` 是UART2 DL-LN33驱动：RX 使用FIFO中断解析协议帧，TX 由 `DLLN33_Poll()` 灌入FIFO；主程序在开启 UART2 NVIC 前调用 `DLLN33_Init()`，并在启动菜单与运行主循环持续调用 `DLLN33_Poll()`。
 - `Communication/maixcam_serial.c` 是MaixCam UART DMA接收缓冲；同样使用 `\r\n` 作为分隔，主循环必须调用 `MaixCamSerial_Poll()` 及时处理未填满DMA块的短帧。
+- 地图7的 `StageArmMaixCamGrab` 不使用既有二进制 MaixCam 协议：初始四轴待命位到位后直接发送 `Start\r\n`，无限等待文本 `yaw,distance\r\n`，并将其作为 IK 的 `yaw/x`、以 `y=10 mm` 执行抓取测试。格式错误的回包会被丢弃并继续等待；IK 到位后 PB17 拉高并鸣响蜂鸣器。
 - SysConfig DMA通道分配如下：
 
 | DMA Channel | 外设 | 方向 | 用途 |
@@ -217,8 +218,6 @@ SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧
 | `JIBOT_SERVO_ID_SHOULDER` (`1`) | 肩俯仰 | IK 平面关节 q1 |
 | `JIBOT_SERVO_ID_ELBOW` (`2`) | 肘俯仰 | IK 平面关节 q2 |
 | `JIBOT_SERVO_ID_WRIST_PITCH` (`3`) | 腕俯仰 | IK 平面关节 q3 |
-| `JIBOT_SERVO_ID_WRIST_ORIENTATION` (`4`) | 腕旋转 | 当前 IK 固定为标定 PWM |
-| `JIBOT_SERVO_ID_GRIPPER` (`5`) | 夹爪 | 当前 IK 固定为标定 PWM |
 
 - 协议位置范围：`PWM 500~2500`，等效中心相对角 `-135°~+135°`，`0° = PWM 1500`，换算为 `round(1500 + angle_deg * 2000 / 270)`。正角只表示 PWM 增大，不等同于机械正方向。
 - 到位时间 `time_ms` 为 `0~9999 ms`；任意完整 Jibot 命令的最小间隔是 `JIBOT_SERVO_COMMAND_INTERVAL_MS`（当前 1 ms）。
@@ -230,20 +229,20 @@ SysConfig 的 Channel Overview 左侧 `Channel 0/1/2/3` 是DMA通道号，右侧
 | 接口 | 用途与行为 |
 |---|---|
 | `JibotServo_SetPwm(id, position_pwm, time_ms)` | 单轴原始 PWM 位置控制；参数非法或 UART 命令无法提交时返回 `false`。 |
-| `JibotServo_SetPwmBatch(position_pwm, time_ms)` | 一次发送 ID0~5 的同步组位置帧；`position_pwm` 必须是 6 个合法 PWM。六轴同步动作应优先使用它。 |
+| `JibotServo_SetPwmBatch(position_pwm, time_ms)` | 一次发送 ID0~3 的同步组位置帧；`position_pwm` 必须是 4 个合法 PWM。四轴同步动作应优先使用它。 |
 | `JibotServo_SetAngle(id, angle_deg, time_ms)` | 单轴中心相对角控制；仅负责角度到 PWM 的协议换算，不负责机械零位、方向或碰撞限位。 |
 | `JibotServo_ReleaseTorque(id)` | 发送 `#dddPULK!` 释放单轴扭力。释放前必须支撑机械臂。 |
 | `JibotServo_RestoreTorque(id)` | 发送 `#dddPULR!` 恢复单轴扭力；只保持当前位置，不下发新位置。 |
 | `JibotServo_ReadPosition(id, &pwm, timeout_ms)` | 发送 `#dddPRAD!` 并阻塞等待匹配位置应答；成功写入原始 PWM。必须在 `TimeBase_Init()` 后调用，常用超时 20~100 ms。 |
 
-单轴位置帧格式为 `#dddPppppTtttt!`，六轴组帧格式为 `{G0000#000P...!#001P...!...#005P...!}`。驱动层只确认命令已交给 UART，不确认机械臂已实际到位。
+单轴位置帧格式为 `#dddPppppTtttt!`，四轴组帧格式为 `{G0000#000P...!#001P...!#002P...!#003P...!}`。驱动层只确认命令已交给 UART，不确认机械臂已实际到位。
 
 #### 5.4.3 示教与 PWM 动作表
 
-- `ArmControl_ReadAllPwm(ArmControl_PwmState *state, timeout_ms)`：依次阻塞读取 ID0~5；`validMask` 的位 n 表示 `pwm[n]` 有效。全部成功才返回 `true`。
-- `ArmControl_RunTeachTest()`：菜单 `ARM TEACH TEST` 的交互入口。进入立即释放六轴；B2 在“读取 PWM 并恢复扭力”与“再次释放扭力”之间切换；B1 退出并尝试恢复六轴扭力。
+- `ArmControl_ReadAllPwm(ArmControl_PwmState *state, timeout_ms)`：依次阻塞读取 ID0~3；`validMask` 的位 n 表示 `pwm[n]` 有效。全部成功才返回 `true`。
+- `ArmControl_RunTeachTest()`：菜单 `ARM TEACH TEST` 的交互入口。进入立即释放四轴；B2 在“读取 PWM 并恢复扭力”与“再次释放扭力”之间切换；B1 退出并尝试恢复四轴扭力。
 - `ArmMotionState_Start(state, sequence, now_ms)`：启动非阻塞 PWM 动作表。动作表类型为 `uint16_t pwm[frameCount][JIBOT_SERVO_COUNT]`，可用 `ARM_MOTION_SEQUENCE(pwm_table)` 包装。
-- `ArmMotionState_Update(state, now_ms)`：主循环持续调用；每 500 ms 查询六轴。任一轴未进入 `ARM_MOTION_STATE_PWM_TOLERANCE`（当前 50 PWM）或查询失败时，重发当前帧；全部到位后再下发下一帧。返回 `Idle/Running/Completed/Failed`。
+- `ArmMotionState_Update(state, now_ms)`：主循环持续调用；每 500 ms 查询四轴。任一轴未进入 `ARM_MOTION_STATE_PWM_TOLERANCE`（当前 50 PWM）或查询失败时，重发当前帧；全部到位后再下发下一帧。返回 `Idle/Running/Completed/Failed`。
 - `ArmMotionState_Reset(state)`：丢弃动作状态，不发送停止命令。
 
 阶段命令可用 `StageArmMotionData` 配合 `STAGE_CMD_ARM_MOTION(&data)` 运行 PWM 动作表；阶段执行时会先刹停小车。
@@ -258,10 +257,10 @@ void ArmIkMotion_Reset(void);
 
 - 坐标约定：`yaw=0` 指向车头前方，从车顶看逆时针为正；`x` 是底座偏航后的水平径向距离（mm，必须不小于 0）；`y` 是相对底座旋转中心向上的高度（mm）。
 - 末端方向不再由调用方指定。求解器在有限解析候选中优先选择钩爪方向最接近竖直向下（模型方向 180°）的姿态；方向误差相同才比较三个平面关节与当前位置的等权平方移动量。
-- 默认几何为 `h=91 mm`、`L1=104 mm`、`L2=74.5 mm`、`L3=174 mm`；q1~q3 默认模型限位均为 ±130°。有效限位还会与标定零位、轴方向、协议 ±135° 和轴 PWM 软件限位求交。
-- `Start()` 会阻塞读取 ID1~3 的当前位置，以选择较小移动量的候选；成功后下发一帧六轴 PWM 并启动内部 `ArmMotionState`。ID4/ID5 使用 `fixedPwm`，默认均为 1500。
+- 默认几何为 `h=91 mm`、`L1=104 mm`、`L2=74.5 mm`、`L3=178 mm`（S3 中心到爪尖）；q1~q3 默认模型限位均为 ±130°。有效限位还会与标定零位、轴方向、协议 ±135° 和轴 PWM 软件限位求交。
+- `Start()` 会阻塞读取 ID1~3 的当前位置，以选择较小移动量的候选；成功后下发一帧四轴 PWM 并启动内部 `ArmMotionState`。S4/S5 不下发任何命令；爪尖相对 S3 固定、没有独立旋转轴。
 - `ArmIkMotion_LastStartWasReachabilityFailure()` 用于区分失败原因：目标无解、模型角/PWM 越界、NaN/无穷、`x<0` 或 yaw 无法映射时返回 `true`；忙状态、标定错误、位置读取或发送失败时返回 `false`。
-- `ArmIkMotion_SetCalibration()` / `ArmIkMotion_GetCalibration()` 读写 `ArmIkMotion_Calibration`。只能在 IK 不运行时设置；可校准几何尺寸、q1~q3 模型限位、ID0~3 零位/方向/PWM 限位、ID4/5 固定 PWM 与位置读取超时。
+- `ArmIkMotion_SetCalibration()` / `ArmIkMotion_GetCalibration()` 读写 `ArmIkMotion_Calibration`。只能在 IK 不运行时设置；可校准几何尺寸、q1~q3 模型限位、ID0~3 零位/方向/PWM 限位与位置读取超时。
 
 阶段命令使用 `StageArmIkMotionData { yawDeg, xMm, yMm }` 和 `STAGE_CMD_ARM_IK_MOTION(&data)`。阶段开始会刹停小车；不可达显示 `CANT REACH`，其余启动或运行失败显示 `ARM IK FAIL`。
 
@@ -269,6 +268,7 @@ void ArmIkMotion_Reset(void);
 
 - `wdd35d4/` 驱动保留，`empty.syscfg` 中仍有 `WDD35D4_ADC`：`PB17` / `ADC1` / `channel 4`。
 - 当前 `main.c` 和 `StageRunner` 不初始化、不读取 WDD35D4。
+- 地图7成功到达 MaixCam IK 目标时，`StageRunner` 会将 PB17 从上述未使用 ADC 复用切换为 GPIO 输出并置高。因此同一次运行中不得再初始化或读取 WDD35D4。
 - `ultrasonic/` 是旧HC-SR04驱动；PB17已被WDD35D4 ADC占用，不要同时作为超声波Echo使用。
 
 ## 6. 开发注意事项

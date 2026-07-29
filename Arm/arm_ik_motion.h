@@ -9,7 +9,8 @@
 /**
  * @brief 笛卡尔自动朝下控制的标定配置。
  *
- * axis[0] 对应底座 yaw，axis[1..3] 对应肩、肘、腕俯仰。
+ * axis[0] 对应底座 yaw，axis[1..3] 对应肩、肘、腕俯仰。爪尖相对 S3
+ * 固定，不存在 S4/S5 的独立旋转或夹爪轴。
  * axisDirection 为模型正方向到协议 PWM 正方向的映射，只允许 +1 或 -1。
  */
 typedef struct ArmIkMotion_Calibration {
@@ -23,7 +24,6 @@ typedef struct ArmIkMotion_Calibration {
 	int8_t axisDirection[4];
 	uint16_t axisMinPwm[4];
 	uint16_t axisMaxPwm[4];
-	uint16_t fixedPwm[2]; /* ID 4 腕旋转、ID 5 夹爪。 */
 	uint16_t positionReadTimeoutMs;
 } ArmIkMotion_Calibration;
 
@@ -47,7 +47,7 @@ void ArmIkMotion_GetCalibration(ArmIkMotion_Calibration *calibration);
  * yaw=0 指向车头正前方，逆时针（向车左）为正；x 是底座偏航后的水平
  * 径向距离（mm），y 是相对底座旋转中心向上的高度（mm）。函数会在所有
  * 合法解析候选中优先选择钩爪方向最接近竖直向下（180 度）的姿态；方向
- * 误差相同时，再选择移动量最小的肘部解。随后将六轴 PWM 目标交给非阻塞
+ * 误差相同时，再选择移动量最小的肘部解。爪尖无独立旋转轴，随后将四轴 PWM 目标交给非阻塞
  * 状态机执行。
  *
  * @return 成功启动返回 true；坐标不可达、标定/位置读取失败或已有动作运行
