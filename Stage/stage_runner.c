@@ -10,7 +10,7 @@
 #include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
-#include "Communication/car_sync.h"
+#include "dl_ln33_stage_machine/car_sync.h"
 #include "Communication/maixcam_protocol.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"
@@ -354,10 +354,6 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config) {
 	/* 速度配置必须由 main.c 的 stageConfig 显式提供，避免模块内重复默认值。 */
 	
-	CarSyncRole syncRole = CarSyncRoleSolo;
-	uint16_t syncPeerAddress = 0U;
-	uint8_t syncRunId = CARSYNC_CROSS_RUN_ID;
-
 	command = (config != NULL) ? commands : NULL;
 	Goal = goal;
 	StageIndex = 0;
@@ -376,11 +372,12 @@ void StageRunner_Init(const StageCommand *commands, int goal,
 	BaseSpeed = (config != NULL) ? config->base_speed_mmps : 0;
 	RoundSpeed = (config != NULL) ? config->round_speed_mmps : 0;
 	if (config != NULL) {
-		syncRole = config->sync_role;
-		syncPeerAddress = config->sync_peer_address;
-		syncRunId = config->sync_run_id;
+		CarSync_Init(config->sync_role, config->sync_peer_address,
+					 config->sync_run_id);
+	} else {
+		/* Invalid stage configuration must not retain a prior follower role. */
+		CarSync_Init(CarSyncRoleSolo, 0U, CARSYNC_CROSS_RUN_ID);
 	}
-	CarSync_Init(syncRole, syncPeerAddress, syncRunId);
 
 	lastStageTime = getNowMs();
 }
