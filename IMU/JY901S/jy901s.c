@@ -30,6 +30,25 @@ static int16_t make_i16_le(uint8_t low, uint8_t high)
     return (int16_t)(((uint16_t)high << 8) | low);
 }
 
+static bool calculate_zero_offset(int16_t output, uint16_t current_offset,
+    uint16_t *new_offset)
+{
+    int32_t adjusted_offset;
+
+    if (new_offset == NULL) {
+        return false;
+    }
+
+    /* The module reports acceleration as measured_value - offset. */
+    adjusted_offset = (int32_t)(int16_t)current_offset + (int32_t)output;
+    if ((adjusted_offset < -32768) || (adjusted_offset > 32767)) {
+        return false;
+    }
+
+    *new_offset = (uint16_t)(int16_t)adjusted_offset;
+    return true;
+}
+
 static void delay_loop(uint32_t loops)
 {
     while (loops-- > 0u) {
@@ -349,6 +368,37 @@ bool JY901S_ZeroYaw(void)
 
     delay_loop(JY901S_UNLOCK_DELAY_LOOPS);
     return JY901S_WriteRegister(JY901S_REG_CALSW, JY901S_CALSW_ZERO_YAW);
+}
+
+bool JY901S_ZeroAxAy(void)
+{
+    JY901S_VectorRaw_t accel;
+    uint16_t x_offset;
+    uint16_t y_offset;
+    uint16_t new_x_offset;
+    uint16_t new_y_offset;
+
+    /* Sample first so the offsets match the sensor's current resting output. */
+    if (!JY901S_ReadAccelRaw(&accel) ||
+        !JY901S_ReadRegister(JY901S_REG_AXOFFSET, &x_offset) ||
+        !JY901S_ReadRegister(JY901S_REG_AYOFFSET, &y_offset) ||
+        !calculate_zero_offset(accel.x, x_offset, &new_x_offset) ||
+        !calculate_zero_offset(accel.y, y_offset, &new_y_offset)) {
+        return false;
+    }
+
+    if (!JY901S_WriteRegister(JY901S_REG_KEY, JY901S_KEY_UNLOCK)) {
+        return false;
+    }
+
+    delay_loop(JY901S_UNLOCK_DELAY_LOOPS);
+    if (!JY901S_WriteRegister(JY901S_REG_AXOFFSET, new_x_offset) ||
+        !JY901S_WriteRegister(JY901S_REG_AYOFFSET, new_y_offset)) {
+        return false;
+    }
+
+    /* Persist the configuration so the zero point also survives a reset. */
+    return JY901S_WriteRegister(JY901S_REG_SAVE, JY901S_SAVE_CONFIG);
 }
 
 bool JY901S_ReadAccelRaw(JY901S_VectorRaw_t *out)

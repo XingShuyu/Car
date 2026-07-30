@@ -31,6 +31,7 @@ static const StageArmMaixCamGrabData armGrabTestData = {
 
 static const StageCommand command0[] = {
 	STAGE_CMD(StageCross),
+	STAGE_CMD(StageGlide),
 	// STAGE_CMD_NUM(StageForward, 500),
 	// STAGE_CMD_NUM(StageTurn, 90.0),
 	// STAGE_CMD_NUM(StageForward, 400),
@@ -71,6 +72,7 @@ static const StageCommand command0[] = {
 	// // STAGE_CMD_NUM(StageForward, 330),
 	// // STAGE_CMD_NUM(StageTurn, 90.0),
 	// // STAGE_CMD_NUM(StageForward, 900),
+	// STAGE_CMD_DATA(StageForward, (&(StageForwardData){200.0, 260})),
 	STAGE_CMD(StageStop),
 };
 

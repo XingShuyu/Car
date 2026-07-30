@@ -25,7 +25,7 @@
 #include <stdio.h>
 
 static const StageRunner_Config stageConfig = {
-	.base_speed_mmps = 600,
+	.base_speed_mmps = 400,
 	.round_speed_mmps = 150,
 	.sync_role = CarSyncRoleSolo,
 	.sync_peer_address = 0U,
@@ -140,6 +140,7 @@ int main(void) {
 	SYSCFG_DL_init(); // 由SysConfig自动生成的初始化函数
 	/* WDD35D4使用PB17/ADC1 CH4，必须在SysConfig完成外设配置后初始化。 */
 	WDD35D4_Init();
+	WDD35D4_CalibrateZero(10);
 	TimeBase_Init(); // 红外测速中断需要微秒级时间基准
 	DLLN33_Init();
 	InfraredSpeed_Init();
@@ -174,6 +175,7 @@ int main(void) {
 				Display_ShowString(0, 0, "HWT101 Ready");
 			} else if (temp == 2) {
 				Display_ShowString(0, 0, "JY901S Ready");
+				JY901S_ZeroAxAy();
 			} else if (temp == 3) {
 				Display_ShowString(0, 0, "MPU6050 Ready");
 			}
@@ -216,9 +218,6 @@ int main(void) {
 	if (runConfig.sync_role == CarSyncRoleFollower) {
 		MotorRuntime_SetTargetWheelMmps(0, 0);
 		MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
-	} else {
-		MotorRuntime_SetTargetWheelMmps(runConfig.base_speed_mmps,
-										runConfig.base_speed_mmps);
 	}
 
 	while (1) {

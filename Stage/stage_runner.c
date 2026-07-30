@@ -10,7 +10,7 @@
 #include "Arm/arm_motion_state.h"
 #include "BasicMicroLib/PID.h"
 #include "BasicMicroLib/getTime.h"
-#include "dl_ln33_stage_machine/car_sync.h"
+#include "BasicMicroLib/ramp.h"
 #include "Communication/maixcam_protocol.h"
 #include "Communication/maixcam_serial.h"
 #include "Drivers/button_select.h"
@@ -20,10 +20,12 @@
 #include "IMU/imu.h"
 #include "Motor/motor_runtime.h"
 #include "OLED/display.h"
+#include "dl_ln33_stage_machine/car_sync.h"
 #include "ti_msp_dl_config.h"
 #include "wdd35d4/wd35d4.h"
 
 #define STAGE_RUNNER_UPDATE_INTERVAL_MS 10U
+#define STAGE_RUNNER_START_SPEED_STEP_MMPS 3.0f
 #define STAGE_RUNNER_MAIXCAM_FRAME_SIZE 32U
 #define STAGE_RUNNER_MAIXCAM_NOTIFY_SIZE 32U
 #define STAGE_RUNNER_MAIXCAM_WAIT_NOTIFY "WAIT"
@@ -33,7 +35,7 @@
 #define STAGE_RUNNER_TRACK_LOW_SPEED_DURATION_MS 1000U
 #define STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS 100U
 #define STAGE_RUNNER_MAIXCAM_GRAB_REQUEST "Start\r\n"
-#define STAGE_RUNNER_MAIXCAM_GRAB_REQUEST_LENGTH \
+#define STAGE_RUNNER_MAIXCAM_GRAB_REQUEST_LENGTH                               \
 	((uint16_t)(sizeof(STAGE_RUNNER_MAIXCAM_GRAB_REQUEST) - 1U))
 
 typedef enum StageRunner_MaixCamResult {
@@ -82,20 +84,16 @@ static ArmMotionState armMotionState;
 static void StageRunner_AssertArmTargetSignal(void) {
 	DL_GPIO_initDigitalOutput(GPIO_WDD35D4_ADC_IOMUX_C4);
 	DL_GPIO_clearPins(GPIO_WDD35D4_ADC_C4_PORT, GPIO_WDD35D4_ADC_C4_PIN);
-	DL_GPIO_enableOutput(GPIO_WDD35D4_ADC_C4_PORT,
-					 GPIO_WDD35D4_ADC_C4_PIN);
+	DL_GPIO_enableOutput(GPIO_WDD35D4_ADC_C4_PORT, GPIO_WDD35D4_ADC_C4_PIN);
 	DL_GPIO_setPins(GPIO_WDD35D4_ADC_C4_PORT, GPIO_WDD35D4_ADC_C4_PIN);
 }
 
-static void StageRunner_ShowTrackingTelemetry(float targetLeft,
-										  float targetRight, float irr,
-										  float measuredLeft,
-										  float measuredRight,
-										  float averageSpeed, bool stopped) {
+static void StageRunner_ShowTrackingTelemetry(
+	float targetLeft, float targetRight, float irr, float measuredLeft,
+	float measuredRight, float averageSpeed, bool stopped) {
 	char line[STAGE_RUNNER_OLED_TEXT_SIZE];
 
-	snprintf(line, sizeof(line), "T:%d,%d", (int)targetLeft,
-			 (int)targetRight);
+	snprintf(line, sizeof(line), "T:%d,%d", (int)targetLeft, (int)targetRight);
 	Display_ShowString(0, 0, line);
 	snprintf(line, sizeof(line), "IRR:%.1f", irr);
 	Display_ShowString(1, 0, line);
@@ -115,8 +113,7 @@ static void StageRunner_SyncTrackingMonitor(uint32_t nowTime) {
 	TrackingMonitorStageIndex = StageIndex;
 	TrackingLowSpeedActive = false;
 	TrackingLowSpeedStartTime = 0U;
-	lastTrackingDisplayTime =
-		nowTime - STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
+	lastTrackingDisplayTime = nowTime - STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
 }
 
 static int StageRunner_CountOnlineSnapshot(
@@ -155,9 +152,9 @@ static bool StageRunner_HandleTrackingSpeed(uint32_t nowTime, float irr) {
 	targetLeft = motor->target_left_mmps;
 	targetRight = motor->target_right_mmps;
 	NewMotorSpeedCtrl_GetMeasuredWheelMmps(motor, &measuredLeft,
-										 &measuredRight);
-	averageSpeed = NewMotor_LeftRightToLinearSpeedMmps(measuredLeft,
-													 measuredRight);
+										   &measuredRight);
+	averageSpeed =
+		NewMotor_LeftRightToLinearSpeedMmps(measuredLeft, measuredRight);
 
 	if (averageSpeed < STAGE_RUNNER_TRACK_MIN_AVG_MMPS) {
 		if (!TrackingLowSpeedActive) {
@@ -165,9 +162,9 @@ static bool StageRunner_HandleTrackingSpeed(uint32_t nowTime, float irr) {
 			TrackingLowSpeedStartTime = nowTime;
 		} else if (getTimeMs(nowTime, TrackingLowSpeedStartTime) >=
 				   STAGE_RUNNER_TRACK_LOW_SPEED_DURATION_MS) {
-			StageRunner_ShowTrackingTelemetry(
-				targetLeft, targetRight, irr, measuredLeft, measuredRight,
-				averageSpeed, true);
+			StageRunner_ShowTrackingTelemetry(targetLeft, targetRight, irr,
+											  measuredLeft, measuredRight,
+											  averageSpeed, true);
 			MotorRuntime_SetTargetWheelMmps(0, 0);
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			return true;
@@ -177,14 +174,13 @@ static bool StageRunner_HandleTrackingSpeed(uint32_t nowTime, float irr) {
 		TrackingLowSpeedStartTime = 0U;
 	}
 
-	shouldDisplay =
-		getTimeMs(nowTime, lastTrackingDisplayTime) >=
-		STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
+	shouldDisplay = getTimeMs(nowTime, lastTrackingDisplayTime) >=
+					STAGE_RUNNER_TRACK_DISPLAY_INTERVAL_MS;
 	if (shouldDisplay) {
 		lastTrackingDisplayTime = nowTime;
-		StageRunner_ShowTrackingTelemetry(
-			targetLeft, targetRight, irr, measuredLeft, measuredRight,
-			averageSpeed, false);
+		StageRunner_ShowTrackingTelemetry(targetLeft, targetRight, irr,
+										  measuredLeft, measuredRight,
+										  averageSpeed, false);
 	}
 
 	return false;
@@ -211,8 +207,7 @@ static void StageRunner_SendMaixCamStageNotify(const uint8_t *data,
 
 	if (MaixCamProtocol_BuildFrame(
 			notify, sizeof(notify), MAIXCAM_PROTOCOL_ADDR_EMM,
-			MaixCamProtocolType_Stage, data, dataLength,
-			&notifyLength)) {
+			MaixCamProtocolType_Stage, data, dataLength, &notifyLength)) {
 		MaixCamSerial_SendBytes(notify, notifyLength);
 	}
 }
@@ -246,8 +241,8 @@ static bool StageRunner_IsFinite(float value) {
  * CRLF；此处要求两个浮点数之间只有一个逗号，且不允许额外字符。
  */
 static bool StageRunner_ParseMaixCamGrabPose(const uint8_t *frame,
-										 uint16_t length, float *yawDeg,
-										 float *xMm) {
+											 uint16_t length, float *yawDeg,
+											 float *xMm) {
 	char text[STAGE_RUNNER_MAIXCAM_FRAME_SIZE + 1U];
 	char *end;
 	char *secondValue;
@@ -256,8 +251,8 @@ static bool StageRunner_ParseMaixCamGrabPose(const uint8_t *frame,
 	uint16_t index;
 
 	if ((frame == NULL) || (yawDeg == NULL) || (xMm == NULL) ||
-		(length == 0U) || (length >= sizeof(text)) ||
-		(frame[0] == ' ') || (frame[0] == '\t')) {
+		(length == 0U) || (length >= sizeof(text)) || (frame[0] == ' ') ||
+		(frame[0] == '\t')) {
 		return false;
 	}
 
@@ -353,7 +348,7 @@ StageRunner_ExecuteMaixCamFrame(uint8_t *frame, uint16_t length,
 void StageRunner_Init(const StageCommand *commands, int goal,
 					  const StageRunner_Config *config) {
 	/* 速度配置必须由 main.c 的 stageConfig 显式提供，避免模块内重复默认值。 */
-	
+
 	command = (config != NULL) ? commands : NULL;
 	Goal = goal;
 	StageIndex = 0;
@@ -495,7 +490,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 			StageIndex++;
 		} else {
 			MotorRuntime_SetTargetWheelMmps((base * RoundSpeed),
-										-(base * RoundSpeed));
+											-(base * RoundSpeed));
 		}
 		break;
 	}
@@ -537,7 +532,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 			StageIndex++;
 		} else {
 			MotorRuntime_SetTargetWheelMmps(-(base * RoundSpeed),
-										(base * RoundSpeed));
+											(base * RoundSpeed));
 		}
 		break;
 	}
@@ -578,9 +573,8 @@ bool StageRunner_Update(uint32_t nowTime) {
 		// 	StageFlag = 0;
 		// 	StageIndex++;
 		// }
-		// if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
-		// 	 Grayscale_Cross(grayscale, 1)) &&
-		// 	StageFlag % 2 == 1) {
+		// if ((Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2)
+		// || 	 Grayscale_Cross(grayscale, 1)) && 	StageFlag % 2 == 1) {
 
 		// 	if (StageFlag == 3) {
 		// 		distence[0] = MotorRuntime_GetLeftDistanceMm() - 18;
@@ -591,15 +585,17 @@ bool StageRunner_Update(uint32_t nowTime) {
 		// 	MotorRuntime_ResetDistance();
 		// 	StageFlag++;
 		// }
-		// if (!(Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2) ||
-		// 	  Grayscale_Cross(grayscale, 1)) &&
-		// 	StageFlag % 2 == 0) {
+		// if (!(Grayscale_Cross(grayscale, 0) || Grayscale_Cross(grayscale, 2)
+		// || 	  Grayscale_Cross(grayscale, 1)) && 	StageFlag % 2 == 0) {
 		// 	StageFlag++;
 		// }
 		// break;
 		static uint32_t startTime;
+		static float vx_cmd = 0.0f;
+		static int speedUpTime = 0;
 		if (StageFlag == 0) {
-			MotorRuntime_SetTargetWheelMmps(BaseSpeed, BaseSpeed);
+			/* 起步仅平滑车体前向速度；循迹转向量 irr 始终即时生效。 */
+			vx_cmd = 0.0f;
 			MotorRuntime_ResetDistance();
 			startTime = getNowMs();
 			StageFlag++;
@@ -610,8 +606,6 @@ bool StageRunner_Update(uint32_t nowTime) {
 
 			if (Grayscale_LastReadOk() &&
 				StageRunner_CountOnlineSnapshot(grayscale) == 6) {
-				MotorRuntime_SetTargetWheelMmps(0, 0);
-				MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 				char temp[STAGE_RUNNER_OLED_TEXT_SIZE];
 				snprintf(temp, sizeof(temp), "Time: %.2f",
 						 (float)(getNowMs() - startTime) / 1000.0f);
@@ -622,20 +616,44 @@ bool StageRunner_Update(uint32_t nowTime) {
 				lastStageTime = nowTime;
 				break;
 			}
-			MotorRuntime_SetTargetRobot(BaseSpeed, irr);
-			float angle_deg;
-			char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
-			int dataLength;
+			vx_cmd = RampTo(vx_cmd, (float)BaseSpeed,
+							STAGE_RUNNER_START_SPEED_STEP_MMPS);
+			MotorRuntime_SetTargetRobot(vx_cmd, irr);
 
-			/* 任一传感器读取失败时丢弃本帧，绝不发送未初始化或旧数据。 */
-			if (WDD35D4_ReadAngleDeg(&angle_deg) && IMU_ReadAll(&IMUData)) {
-				dataLength = snprintf(temp, sizeof(temp), "%.2f,%.2f\r\n",
-									  IMUData.ax, angle_deg);
+			// 起步的时候启用传感器
+
+			if (vx_cmd < 0.9 * BaseSpeed && speedUpTime > 2) {
+				float angle_deg;
+				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+				int dataLength;
+
+				/* 任一传感器读取失败时丢弃本帧，绝不发送未初始化或旧数据。 */
+				if (WDD35D4_ReadAngleDeg(&angle_deg) && IMU_ReadAll(&IMUData)) {
+					// dataLength = snprintf(temp, sizeof(temp),
+					// "%.4f,%.2f\r\n", 					  -IMUData.ax,
+					// angle_deg);
+					dataLength = snprintf(
+						temp, sizeof(temp), "%.4f,%.2f\r\n",
+						0.010 * STAGE_RUNNER_START_SPEED_STEP_MMPS, angle_deg);
+					if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+						MaixCamSerial_SendBytes((const uint8_t *)temp,
+												(uint16_t)dataLength);
+					}
+				}
+			} else {
+				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+				int dataLength;
+				dataLength =
+					snprintf(temp, sizeof(temp), "%.4f,%.2f\r\n", 0.0, 0.0);
 				if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
 					MaixCamSerial_SendBytes((const uint8_t *)temp,
-										(uint16_t)dataLength);
+											(uint16_t)dataLength);
 				}
 			}
+			if (speedUpTime < 30) {
+				speedUpTime++;
+			}
+
 			break;
 		}
 	}
@@ -980,10 +998,11 @@ bool StageRunner_Update(uint32_t nowTime) {
 			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 			if ((armData == NULL) ||
 				!ArmIkMotion_Start(armData->yawDeg, armData->xMm,
-							  armData->yMm)) {
+								   armData->yMm)) {
 				Display_ShowString(0, 0,
-					ArmIkMotion_LastStartWasReachabilityFailure() ?
-						"CANT REACH" : "ARM IK FAIL");
+								   ArmIkMotion_LastStartWasReachabilityFailure()
+									   ? "CANT REACH"
+									   : "ARM IK FAIL");
 				shouldStopRun = true;
 				break;
 			}
@@ -1035,16 +1054,17 @@ bool StageRunner_Update(uint32_t nowTime) {
 			char line[STAGE_RUNNER_OLED_TEXT_SIZE];
 
 			if (!StageRunner_ParseMaixCamGrabPose(frame, frameLength, &yawDeg,
-													  &xMm)) {
+												  &xMm)) {
 				Display_ShowString(0, 0, "MAIX DATA ERR");
 				Display_ShowString(1, 0, "WAIT NEXT FRAME");
 				break;
 			}
 
-			if (!ArmIkMotion_Start(yawDeg, xMm-10, grabData->targetYmm)) {
+			if (!ArmIkMotion_Start(yawDeg, xMm - 10, grabData->targetYmm)) {
 				Display_ShowString(0, 0,
-					ArmIkMotion_LastStartWasReachabilityFailure() ?
-						"CANT REACH" : "ARM IK FAIL");
+								   ArmIkMotion_LastStartWasReachabilityFailure()
+									   ? "CANT REACH"
+									   : "ARM IK FAIL");
 				shouldStopRun = true;
 				break;
 			}
@@ -1069,6 +1089,65 @@ bool StageRunner_Update(uint32_t nowTime) {
 			}
 		}
 		break;
+	}
+	case StageGlide: {
+		static float vx_cmd = 0.0;
+		static int speedUpTime = 0;
+		if (StageFlag == 0) {
+			/* 起步仅平滑车体前向速度；循迹转向量 irr 始终即时生效。 */
+			vx_cmd = BaseSpeed;
+			MotorRuntime_ResetDistance();
+			StageFlag++;
+		}
+		if (StageFlag > 0) {
+			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+			float irr = Grayscale_Line(&grayscalePid, grayscale);
+
+			vx_cmd = RampTo(vx_cmd, 0.0, 1.5*STAGE_RUNNER_START_SPEED_STEP_MMPS);
+			MotorRuntime_SetTargetRobot(vx_cmd, irr);
+
+			// 起步的时候启用传感器
+
+			if (vx_cmd > 0.33 * BaseSpeed && speedUpTime > 2) {
+				float angle_deg;
+				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+				int dataLength;
+
+				/* 任一传感器读取失败时丢弃本帧，绝不发送未初始化或旧数据。 */
+				if (WDD35D4_ReadAngleDeg(&angle_deg) && IMU_ReadAll(&IMUData)) {
+					// dataLength = snprintf(temp, sizeof(temp),
+					// "%.4f,%.2f\r\n", 					  -IMUData.ax,
+					// angle_deg);
+					dataLength = snprintf(
+						temp, sizeof(temp), "%.4f,%.2f\r\n",
+						-0.021 * STAGE_RUNNER_START_SPEED_STEP_MMPS, angle_deg);
+					if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+						MaixCamSerial_SendBytes((const uint8_t *)temp,
+												(uint16_t)dataLength);
+					}
+				}
+			} else {
+				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+				int dataLength;
+				dataLength =
+					snprintf(temp, sizeof(temp), "%.4f,%.2f\r\n", 0.0, 0.0);
+				if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+					MaixCamSerial_SendBytes((const uint8_t *)temp,
+											(uint16_t)dataLength);
+				}
+			}
+			if (speedUpTime < 30) {
+				speedUpTime++;
+			}
+
+			// 停车判断
+			if (vx_cmd == 0) {
+				StageFlag = 0;
+				StageIndex++;
+			}
+
+			break;
+		}
 	}
 	default:
 		break;

@@ -41,7 +41,8 @@ typedef enum StageType {
 	/* Leader 在 StageCross 完成后通知 Follower。 */
 	StageZigbeeNotifyDone = 22,
 	/* MaixCam 文本识别抓取：发送 Start\r\n，解析 yaw,distance 后执行 IK。 */
-	StageArmMaixCamGrab = 23
+	StageArmMaixCamGrab = 23,
+	StageGlide = 24
 } Stage;
 
 typedef struct StageCommand {

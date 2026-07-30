@@ -86,6 +86,9 @@
 /* Write KEY before changing configuration or starting calibration commands. */
 #define JY901S_KEY_UNLOCK     (0xB588u)
 
+/* SAVE command values. */
+#define JY901S_SAVE_CONFIG     (0x0000u)
+
 typedef struct {
     int16_t x;
     int16_t y;
@@ -124,6 +127,11 @@ bool JY901S_ReadAccelRaw(JY901S_VectorRaw_t *out);
 bool JY901S_ReadGyroRaw(JY901S_VectorRaw_t *out);
 bool JY901S_ReadMagRaw(JY901S_VectorRaw_t *out);
 bool JY901S_ReadAngleRaw(JY901S_VectorRaw_t *out);
+/*
+ * Set the current X/Y acceleration output to zero and save the new offsets.
+ * Keep the sensor horizontal and completely still while calling this function.
+ */
+bool JY901S_ZeroAxAy(void);
 
 void JY901S_ConvertRaw(const JY901S_RawData_t *raw, JY901S_Data_t *out);
 
