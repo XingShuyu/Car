@@ -42,7 +42,9 @@ typedef enum StageType {
 	StageZigbeeNotifyDone = 22,
 	/* MaixCam 文本识别抓取：发送 Start\r\n，解析 yaw,distance 后执行 IK。 */
 	StageArmMaixCamGrab = 23,
-	StageGlide = 24
+	StageGlide = 24,
+	/* 灰度循迹指定距离；numData 为前进距离，单位 mm。 */
+	StageTrackForward = 25
 } Stage;
 
 typedef struct StageCommand {

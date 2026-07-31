@@ -32,6 +32,9 @@ static const StageArmMaixCamGrabData armGrabTestData = {
 static const StageCommand command0[] = {
 	STAGE_CMD(StageCross),
 	STAGE_CMD(StageGlide),
+	STAGE_CMD(StageStop),
+	// 循迹指定距离示例（单位 mm）：
+	// STAGE_CMD_NUM(StageTrackForward, 480),
 	// STAGE_CMD_NUM(StageForward, 500),
 	// STAGE_CMD_NUM(StageTurn, 90.0),
 	// STAGE_CMD_NUM(StageForward, 400),
@@ -73,40 +76,12 @@ static const StageCommand command0[] = {
 	// // STAGE_CMD_NUM(StageTurn, 90.0),
 	// // STAGE_CMD_NUM(StageForward, 900),
 	// STAGE_CMD_DATA(StageForward, (&(StageForwardData){200.0, 260})),
-	STAGE_CMD(StageStop),
+	
 };
 
 static const StageCommand command1[] = {
-	STAGE_CMD_NUM(StageForward, 500),
-	STAGE_CMD_NUM(StageTurn, 90.0),
-	STAGE_CMD_NUM(StageForward, 400),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x01U}), 2U),
-	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_NUM(StageForward, 480),
-	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_NUM(StageForward, 1000),
-	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x02U, 0x02U}), 2U),
-	// STAGE_CMD_NUM(StageTurn, -180),
-	// STAGE_CMD_NUM(StageForward, 330),
-	// STAGE_CMD_NUM(StageTurn, 90.0),
-	// STAGE_CMD_NUM(StageForward, 900),
+	STAGE_CMD_NUM(StageTrackForward, 3000),
+	STAGE_CMD(StageGlide),
 	STAGE_CMD(StageStop),
 };
 

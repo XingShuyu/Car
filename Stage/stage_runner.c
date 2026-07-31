@@ -830,6 +830,64 @@ bool StageRunner_Update(uint32_t nowTime) {
 		}
 		break;
 	}
+	case StageTrackForward: {
+		static int32_t stageSpeed = 0;
+		static float stageDistanceMm = 0.0f;
+		static float vxCmd = 0.0f;
+		float avgDistanceMm;
+		float irr;
+
+		if (StageFlag == 0) {
+			/*
+			 * STAGE_CMD_NUM 使用 numData 指定距离；也兼容 StageForwardData，
+			 * 需要单独调整速度时可同时指定 length 和 speed。
+			 */
+			if (stageData == NULL) {
+				stageSpeed = BaseSpeed;
+				stageDistanceMm = numData;
+			} else {
+				stageSpeed =
+					((const StageForwardData *)stageData)->speed;
+				stageDistanceMm =
+					((const StageForwardData *)stageData)->length;
+			}
+
+			MotorRuntime_ResetDistance();
+			vxCmd = 0.0f;
+
+			/* 非正距离或速度不执行运动，直接安全结束本阶段。 */
+			if ((stageDistanceMm <= 0.0f) || (stageSpeed <= 0)) {
+				MotorRuntime_SetTargetWheelMmps(0, 0);
+				MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+				StageIndex++;
+				lastStageTime = nowTime;
+				break;
+			}
+			StageFlag = 1;
+		}
+
+		avgDistanceMm = MotorRuntime_GetAverageDistanceMm();
+		if (avgDistanceMm >= stageDistanceMm) {
+			MotorRuntime_SetTargetWheelMmps(0, 0);
+			MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
+			StageFlag = 0;
+			StageIndex++;
+			lastStageTime = nowTime;
+			break;
+		}
+
+		/* 仅平滑前向速度，灰度循迹产生的转向修正量始终即时生效。 */
+		grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+		irr = Grayscale_Line(&grayscalePid, grayscale);
+		vxCmd = RampTo(vxCmd, (float)stageSpeed,
+					   STAGE_RUNNER_START_SPEED_STEP_MMPS);
+		MotorRuntime_SetTargetRobot(vxCmd, irr);
+
+		if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+			shouldStopRun = true;
+		}
+		break;
+	}
 	case StageMaixCamCommand: {
 		uint8_t frame[STAGE_RUNNER_MAIXCAM_FRAME_SIZE];
 		uint16_t frameLength;
@@ -1108,7 +1166,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 
 			// 起步的时候启用传感器
 
-			if (vx_cmd > 0.33 * BaseSpeed && speedUpTime > 2) {
+			if (vx_cmd > 0.1 * BaseSpeed && speedUpTime > 2) {
 				float angle_deg;
 				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
 				int dataLength;
@@ -1120,7 +1178,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 					// angle_deg);
 					dataLength = snprintf(
 						temp, sizeof(temp), "%.4f,%.2f\r\n",
-						-0.021 * STAGE_RUNNER_START_SPEED_STEP_MMPS, angle_deg);
+						-0.015 * STAGE_RUNNER_START_SPEED_STEP_MMPS, angle_deg);
 					if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
 						MaixCamSerial_SendBytes((const uint8_t *)temp,
 												(uint16_t)dataLength);
