@@ -112,13 +112,16 @@ void NewMotorSpeedCtrl_SetTargetWheelMmps(NewMotor_SpeedCtrl *ctrl, float left_m
 void NewMotorSpeedCtrl_SetTargetRobot(NewMotor_SpeedCtrl *ctrl, float vx_mmps, float wz_radps)
 {
     float spin_term;
-
+    // 偏轴差速
+    float left_spin_term,right_spin_term;
     if (ctrl == NULL) {
         return;
     }
 
     spin_term = 0.001f * NEWMOTOR_WHEEL_BASE_MM * wz_radps;
-    NewMotorSpeedCtrl_SetTargetWheelMmps(ctrl, vx_mmps - spin_term, vx_mmps + spin_term);
+    left_spin_term = 2*spin_term/3;
+    right_spin_term = 2*spin_term/3*2;
+    NewMotorSpeedCtrl_SetTargetWheelMmps(ctrl, vx_mmps - left_spin_term, vx_mmps + right_spin_term);
 }
 
 void NewMotorSpeedCtrl_UpdateByEncoderDelta(NewMotor_SpeedCtrl *ctrl, int32_t left_delta_counts, int32_t right_delta_counts)
