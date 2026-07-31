@@ -536,7 +536,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 		}
 		break;
 	}
-	case StageCross: {
+	case StageCrossBalence: {
 		// // StageCross
 		// if (StageFlag == 0) {
 		// 	MotorRuntime_SetTargetWheelMmps(BaseSpeed, BaseSpeed);
@@ -593,9 +593,15 @@ bool StageRunner_Update(uint32_t nowTime) {
 		static uint32_t startTime;
 		static float vx_cmd = 0.0f;
 		static int speedUpTime = 0;
+		static bool irrTriggered = false;
+		static bool straightTiming = false;
+		static uint32_t straightStartTime = 0U;
 		if (StageFlag == 0) {
 			/* 起步仅平滑车体前向速度；循迹转向量 irr 始终即时生效。 */
 			vx_cmd = 0.0f;
+			irrTriggered = false;
+			straightTiming = false;
+			straightStartTime = 0U;
 			MotorRuntime_ResetDistance();
 			startTime = getNowMs();
 			StageFlag++;
@@ -640,7 +646,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 												(uint16_t)dataLength);
 					}
 				}
-			} else {
+			} else if (!irrTriggered) {
 				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
 				int dataLength;
 				dataLength =
@@ -652,6 +658,55 @@ bool StageRunner_Update(uint32_t nowTime) {
 			}
 			if (speedUpTime < 30) {
 				speedUpTime++;
+			}
+			// printf("Back:%.2f\r\n",irr);
+
+			/* 以下仅附加 irr 触发状态，不参与 speedUpTime 原有逻辑。 */
+			if (!irrTriggered && Grayscale_LastReadOk() && irr < -1000.0f) {
+				irrTriggered = true;
+				straightTiming = false;
+			}
+
+			if (irrTriggered) {
+				if (Grayscale_LastReadOk() && fabsf(irr) < 100.0f) {
+					if (!straightTiming) {
+						straightStartTime = nowTime;
+						straightTiming = true;
+					} else if (getTimeMs(nowTime, straightStartTime) >=
+							   50U) {
+						char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+						int dataLength = snprintf(
+							temp, sizeof(temp), "%.4f,%.2f\r\n", 0.0f,
+							0.0f);
+
+						if ((dataLength > 0) &&
+							(dataLength < (int)sizeof(temp))) {
+							MaixCamSerial_SendBytes(
+								(const uint8_t *)temp,
+								(uint16_t)dataLength);
+							irrTriggered = false;
+							straightTiming = false;
+						}
+					}
+				} else {
+					/*
+					 * 偏离直线或本帧灰度读取失败都会打断连续
+					 * 500 ms 计时，但保持触发帧连续发送。
+					 */
+					straightTiming = false;
+				}
+
+				if (irrTriggered) {
+					char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+					int dataLength = snprintf(
+						temp, sizeof(temp), "%.4f,%.2f\r\n", -0.01f, 0.0f);
+
+					if ((dataLength > 0) &&
+						(dataLength < (int)sizeof(temp))) {
+						MaixCamSerial_SendBytes((const uint8_t *)temp,
+												(uint16_t)dataLength);
+					}
+				}
 			}
 
 			break;
@@ -1206,6 +1261,38 @@ bool StageRunner_Update(uint32_t nowTime) {
 
 			break;
 		}
+	}
+	case StageCross:{
+		// StageCross
+		float StageSpeed = BaseSpeed;
+		if (numData != 0.0) {
+			StageSpeed = numData;
+		}
+		if (StageFlag == 0) {
+			MotorRuntime_SetTargetWheelMmps(StageSpeed, StageSpeed);
+			MotorRuntime_ResetDistance();
+			StageFlag++;
+		}
+		if (StageFlag > 0) {
+			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
+			float irr = Grayscale_Line(&grayscalePid, grayscale);
+
+			if (Grayscale_LastReadOk() &&
+				StageRunner_CountOnlineSnapshot(grayscale) == 5) {
+				Display_ShowString(0, 0, "Cross Done");
+				StageFlag = 0;
+				StageIndex++;
+				lastStageTime = nowTime;
+				break;
+			}
+
+			MotorRuntime_SetTargetRobot(StageSpeed, irr);
+			if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
+				shouldStopRun = true;
+				break;
+			}
+		}
+		break;
 	}
 	default:
 		break;

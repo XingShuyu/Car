@@ -67,6 +67,19 @@ static const AppRouteOption appRouteOptions[] = {
 #define APP_ROUTE_OPTION_COUNT \
 	((uint8_t)(sizeof(appRouteOptions) / sizeof(appRouteOptions[0])))
 
+/*
+ * 统一维护 MaixCam 接收和蜂鸣器单响状态。Arrived 事件不会消费普通接收帧，
+ * StageRunner 仍可按原流程读取同一帧。
+ */
+static void App_UpdateMaixCamAndBuzzer(uint32_t currentTimeMs)
+{
+	MaixCamSerial_Poll();
+	if (MaixCamSerial_TakeArrivedEvent()) {
+		Buzzer_BeepOnceAsync(currentTimeMs);
+	}
+	Buzzer_Update(currentTimeMs);
+}
+
 static void App_ShowRouteMenu(uint8_t optionIndex)
 {
 	const AppRouteOption *option = &appRouteOptions[optionIndex];
@@ -125,7 +138,7 @@ static const AppRouteOption *App_SelectRoute(void)
 		/* 启动菜单停留期间继续维护通信接收，不执行路线或电机控制。 */
 		USART_PollTx();
 		DLLN33_Poll();
-		MaixCamSerial_Poll();
+		App_UpdateMaixCamAndBuzzer(getNowMs());
 	}
 }
 
@@ -225,7 +238,7 @@ int main(void) {
 		nowTime = getNowMs();
 		USART_PollTx();
 		DLLN33_Poll();
-		MaixCamSerial_Poll();
+		App_UpdateMaixCamAndBuzzer(nowTime);
 		// 每10ms获取电机运行圈数
 		MotorRuntime_Update(nowTime, getNowUs());
 

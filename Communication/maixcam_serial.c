@@ -12,11 +12,15 @@
 #define MAIXCAM_DMA_RX_BLOCK_SIZE 32U
 #define MAIXCAM_RX_FIFO_DRAIN_LIMIT 32U
 #define MAIXCAM_SERIAL_USE_DMA_RX 0
+#define MAIXCAM_SERIAL_ARRIVED_TEXT "Arrived"
+#define MAIXCAM_SERIAL_ARRIVED_LENGTH \
+	((uint16_t)(sizeof(MAIXCAM_SERIAL_ARRIVED_TEXT) - 1U))
 
 // MaixCam 串口接收帧缓存，maixcam_buff 保存最近一帧完整 CRLF 数据。
 static volatile uint8_t maixcam_buff[MAIXCAM_SERIAL_BUFFER_SIZE] = {0};
 static volatile uint16_t maixcam_length = 0;
 static volatile uint8_t maixcam_flag = 0;
+static volatile uint8_t maixcam_arrived_event = 0;
 #if MAIXCAM_SERIAL_USE_DMA_RX
 static volatile uint8_t maixcam_rx_dma_block[MAIXCAM_DMA_RX_BLOCK_SIZE] = {0};
 static volatile uint16_t maixcam_rx_dma_processed = 0;
@@ -49,6 +53,23 @@ static void MaixCamSerial_AppendWork(uint8_t data)
 	}
 }
 
+static bool MaixCamSerial_IsArrivedFrame(void)
+{
+	uint16_t i;
+
+	if (maixcam_work_length != MAIXCAM_SERIAL_ARRIVED_LENGTH) {
+		return false;
+	}
+
+	for (i = 0U; i < MAIXCAM_SERIAL_ARRIVED_LENGTH; i++) {
+		if (maixcam_work[i] !=
+			(uint8_t)MAIXCAM_SERIAL_ARRIVED_TEXT[i]) {
+			return false;
+		}
+	}
+	return true;
+}
+
 static void MaixCamSerial_PublishFrame(void)
 {
 	uint16_t i;
@@ -59,6 +80,9 @@ static void MaixCamSerial_PublishFrame(void)
 	maixcam_buff[maixcam_work_length] = '\0';
 	maixcam_length = maixcam_work_length;
 	maixcam_flag = 1;
+	if (MaixCamSerial_IsArrivedFrame()) {
+		maixcam_arrived_event = 1U;
+	}
 	MaixCamSerial_ResetWork();
 }
 
@@ -183,6 +207,20 @@ void MaixCamSerial_ClearFlag(void)
 	maixcam_flag = 0;
 }
 
+bool MaixCamSerial_TakeArrivedEvent(void)
+{
+	bool hasEvent;
+	uint32_t primask = __get_PRIMASK();
+
+	__disable_irq();
+	hasEvent = (maixcam_arrived_event != 0U);
+	maixcam_arrived_event = 0U;
+	if (primask == 0U) {
+		__enable_irq();
+	}
+	return hasEvent;
+}
+
 bool MaixCamSerial_TryReadFrame(uint8_t *buffer, uint16_t bufferSize,
 								uint16_t *length)
 {
@@ -241,6 +279,7 @@ void MaixCamSerial_Init(void)
 {
 	maixcam_length = 0;
 	maixcam_flag = 0;
+	maixcam_arrived_event = 0;
 	maixcam_buff[0] = '\0';
 #if MAIXCAM_SERIAL_USE_DMA_RX
 	maixcam_rx_dma_processed = 0;

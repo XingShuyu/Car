@@ -44,7 +44,8 @@ typedef enum StageType {
 	StageArmMaixCamGrab = 23,
 	StageGlide = 24,
 	/* 灰度循迹指定距离；numData 为前进距离，单位 mm。 */
-	StageTrackForward = 25
+	StageTrackForward = 25,
+	StageCrossBalence = 26
 } Stage;
 
 typedef struct StageCommand {

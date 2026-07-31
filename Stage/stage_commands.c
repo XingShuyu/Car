@@ -30,7 +30,7 @@ static const StageArmMaixCamGrabData armGrabTestData = {
 };
 
 static const StageCommand command0[] = {
-	STAGE_CMD(StageCross),
+	STAGE_CMD(StageCrossBalence),
 	STAGE_CMD(StageGlide),
 	STAGE_CMD(StageStop),
 	// 循迹指定距离示例（单位 mm）：
@@ -86,32 +86,9 @@ static const StageCommand command1[] = {
 };
 
 static const StageCommand command2[] = {
-	STAGE_CMD_NUM(StageForward, 980),
-	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_NUM(StageForward, 600),
-	STAGE_CMD_NUM(StageTurn, -90.0),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_DATA(StageForward, (&(StageForwardData){110.0, 150})),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x01U}), 2U),
-	STAGE_CMD_NUM(StageTurn, -180.0),
-	STAGE_CMD_NUM(StageForward, 350),
-	STAGE_CMD_NUM(StageTurn, 90.0),
-	STAGE_CMD_NUM(StageForward, 980),
-	STAGE_CMD_MAIXCAM(((const uint8_t[]){0x03U, 0x02U}), 2U),
+	STAGE_CMD_NUM(StageCross, 600),
+	STAGE_CMD(StageGlide),
+	STAGE_CMD(StageStop),
 };
 
 static const StageCommand command3[] = {
