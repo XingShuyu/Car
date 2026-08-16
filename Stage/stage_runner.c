@@ -75,6 +75,7 @@ static bool TrackingLowSpeedActive = false;
 static uint32_t TrackingLowSpeedStartTime = 0U;
 static uint32_t lastTrackingDisplayTime = 0U;
 static ArmMotionState armMotionState;
+static int runningTime = 0;
 
 /*
  * PB17 is normally reserved as the unused WDD35D4 ADC input.  The grab-test
@@ -590,16 +591,22 @@ bool StageRunner_Update(uint32_t nowTime) {
 		// 	StageFlag++;
 		// }
 		// break;
+		typedef enum StageCrossIrrPhase {
+			StageCrossIrrWaitTrigger1 = 0,
+			StageCrossIrrTrigger1Active,
+			StageCrossIrrWaitTrigger2,
+			StageCrossIrrTrigger2Active
+		} StageCrossIrrPhase;
 		static uint32_t startTime;
 		static float vx_cmd = 0.0f;
 		static int speedUpTime = 0;
-		static bool irrTriggered = false;
+		static StageCrossIrrPhase irrPhase = StageCrossIrrWaitTrigger1;
 		static bool straightTiming = false;
 		static uint32_t straightStartTime = 0U;
 		if (StageFlag == 0) {
 			/* 起步仅平滑车体前向速度；循迹转向量 irr 始终即时生效。 */
 			vx_cmd = 0.0f;
-			irrTriggered = false;
+			irrPhase = StageCrossIrrWaitTrigger1;
 			straightTiming = false;
 			straightStartTime = 0U;
 			MotorRuntime_ResetDistance();
@@ -609,6 +616,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 		if (StageFlag > 0) {
 			grayscalePid.t = getTimeMs(nowTime, lastStageTime);
 			float irr = Grayscale_Line(&grayscalePid, grayscale);
+			printf("Back:%.2f\r\n",irr);
 
 			if (Grayscale_LastReadOk() &&
 				StageRunner_CountOnlineSnapshot(grayscale) == 6) {
@@ -646,7 +654,8 @@ bool StageRunner_Update(uint32_t nowTime) {
 												(uint16_t)dataLength);
 					}
 				}
-			} else if (!irrTriggered) {
+			} else if ((irrPhase != StageCrossIrrTrigger1Active) &&
+					   (irrPhase != StageCrossIrrTrigger2Active)) {
 				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
 				int dataLength;
 				dataLength =
@@ -661,13 +670,19 @@ bool StageRunner_Update(uint32_t nowTime) {
 			}
 			// printf("Back:%.2f\r\n",irr);
 
-			/* 以下仅附加 irr 触发状态，不参与 speedUpTime 原有逻辑。 */
-			if (!irrTriggered && Grayscale_LastReadOk() && irr < -1000.0f) {
-				irrTriggered = true;
+			/* 两个 irr 事件严格按触发1、触发2的顺序交替运行。 */
+			if ((irrPhase == StageCrossIrrWaitTrigger1) &&
+				Grayscale_LastReadOk() && (irr < -1000.0f)) {
+				irrPhase = StageCrossIrrTrigger1Active;
+				straightTiming = false;
+			} else if ((irrPhase == StageCrossIrrWaitTrigger2) &&
+					   Grayscale_LastReadOk() && (irr > -1200.0f)) {
+				irrPhase = StageCrossIrrTrigger2Active;
 				straightTiming = false;
 			}
 
-			if (irrTriggered) {
+			if ((irrPhase == StageCrossIrrTrigger1Active) ||
+				(irrPhase == StageCrossIrrTrigger2Active)) {
 				if (Grayscale_LastReadOk() && fabsf(irr) < 100.0f) {
 					if (!straightTiming) {
 						straightStartTime = nowTime;
@@ -684,22 +699,33 @@ bool StageRunner_Update(uint32_t nowTime) {
 							MaixCamSerial_SendBytes(
 								(const uint8_t *)temp,
 								(uint16_t)dataLength);
-							irrTriggered = false;
+							irrPhase =
+								(irrPhase == StageCrossIrrTrigger1Active) ?
+									StageCrossIrrWaitTrigger2 :
+									StageCrossIrrWaitTrigger1;
 							straightTiming = false;
 						}
 					}
 				} else {
 					/*
 					 * 偏离直线或本帧灰度读取失败都会打断连续
-					 * 500 ms 计时，但保持触发帧连续发送。
+					 * 50 ms 计时，但保持当前触发帧连续发送。
 					 */
 					straightTiming = false;
 				}
 
-				if (irrTriggered) {
+				if ((irrPhase == StageCrossIrrTrigger1Active) ||
+					(irrPhase == StageCrossIrrTrigger2Active)) {
 					char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
-					int dataLength = snprintf(
-						temp, sizeof(temp), "%.4f,%.2f\r\n", -0.01f, 0.0f);
+					int dataLength;
+
+					if (irrPhase == StageCrossIrrTrigger1Active) {
+						dataLength = snprintf(temp, sizeof(temp),
+										  "%.4f,%.2f\r\n", -0.01f, 0.0f);
+					} else {
+						dataLength = snprintf(temp, sizeof(temp),
+										  "%.4f,%.2f\r\n", 0.015f, 0.0f);
+					}
 
 					if ((dataLength > 0) &&
 						(dataLength < (int)sizeof(temp))) {
@@ -743,6 +769,10 @@ bool StageRunner_Update(uint32_t nowTime) {
 	}
 	case StageBizz: {
 		// StageBizz
+		int time = getTimeMs(getNowMs(), runningTime);
+		char temp[21];
+		sprintf(temp, "Time:%.2f",(float)(time/1000.0));
+		Display_ShowString(0, 0, temp);
 		MotorRuntime_SetTargetWheelMmps(0, 0);
 		MotorRuntime_Stop(NEWMOTOR_STOP_BRAKE);
 		Buzzer_Beep();
@@ -886,9 +916,19 @@ bool StageRunner_Update(uint32_t nowTime) {
 		break;
 	}
 	case StageTrackForward: {
+		typedef enum StageTrackIrrPhase {
+			StageTrackIrrWaitTrigger1 = 0,
+			StageTrackIrrTrigger1Active,
+			StageTrackIrrWaitTrigger2,
+			StageTrackIrrTrigger2Active
+		} StageTrackIrrPhase;
 		static int32_t stageSpeed = 0;
 		static float stageDistanceMm = 0.0f;
 		static float vxCmd = 0.0f;
+		static int speedUpTime = 0;
+		static StageTrackIrrPhase irrPhase = StageTrackIrrWaitTrigger1;
+		static bool straightTiming = false;
+		static uint32_t straightStartTime = 0U;
 		float avgDistanceMm;
 		float irr;
 
@@ -909,6 +949,9 @@ bool StageRunner_Update(uint32_t nowTime) {
 
 			MotorRuntime_ResetDistance();
 			vxCmd = 0.0f;
+			irrPhase = StageTrackIrrWaitTrigger1;
+			straightTiming = false;
+			straightStartTime = 0U;
 
 			/* 非正距离或速度不执行运动，直接安全结束本阶段。 */
 			if ((stageDistanceMm <= 0.0f) || (stageSpeed <= 0)) {
@@ -937,6 +980,96 @@ bool StageRunner_Update(uint32_t nowTime) {
 		vxCmd = RampTo(vxCmd, (float)stageSpeed,
 					   STAGE_RUNNER_START_SPEED_STEP_MMPS);
 		MotorRuntime_SetTargetRobot(vxCmd, irr);
+
+		/* 复制 StageCrossBalence 的起步传感器串口发送。 */
+		if (vxCmd < 0.9 * stageSpeed && speedUpTime > 2) {
+			float angle_deg;
+			char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+			int dataLength;
+
+			/* 任一传感器读取失败时丢弃本帧，绝不发送未初始化或旧数据。 */
+			if (WDD35D4_ReadAngleDeg(&angle_deg) && IMU_ReadAll(&IMUData)) {
+				dataLength = snprintf(
+					temp, sizeof(temp), "%.4f,%.2f\r\n",
+					0.010 * STAGE_RUNNER_START_SPEED_STEP_MMPS, angle_deg);
+				if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+					MaixCamSerial_SendBytes((const uint8_t *)temp,
+											(uint16_t)dataLength);
+				}
+			}
+		} else if ((irrPhase != StageTrackIrrTrigger1Active) &&
+				   (irrPhase != StageTrackIrrTrigger2Active)) {
+			char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+			int dataLength =
+				snprintf(temp, sizeof(temp), "%.4f,%.2f\r\n", 0.0, 0.0);
+
+			if ((dataLength > 0) && (dataLength < (int)sizeof(temp))) {
+				MaixCamSerial_SendBytes((const uint8_t *)temp,
+										(uint16_t)dataLength);
+			}
+		}
+		if (speedUpTime < 30) {
+			speedUpTime++;
+		}
+
+		/* 两个 irr 事件严格按触发1、触发2的顺序交替运行。 */
+		if ((irrPhase == StageTrackIrrWaitTrigger1) &&
+			Grayscale_LastReadOk() && (irr < -1000.0f)) {
+			irrPhase = StageTrackIrrTrigger1Active;
+			straightTiming = false;
+		} else if ((irrPhase == StageTrackIrrWaitTrigger2) &&
+				   Grayscale_LastReadOk() && (irr > -1200.0f)) {
+			irrPhase = StageTrackIrrTrigger2Active;
+			straightTiming = false;
+		}
+
+		if ((irrPhase == StageTrackIrrTrigger1Active) ||
+			(irrPhase == StageTrackIrrTrigger2Active)) {
+			if (Grayscale_LastReadOk() && fabsf(irr) < 100.0f) {
+				if (!straightTiming) {
+					straightStartTime = nowTime;
+					straightTiming = true;
+				} else if (getTimeMs(nowTime, straightStartTime) >= 50U) {
+					char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+					int dataLength = snprintf(
+						temp, sizeof(temp), "%.4f,%.2f\r\n", 0.0f, 0.0f);
+
+					if ((dataLength > 0) &&
+						(dataLength < (int)sizeof(temp))) {
+						MaixCamSerial_SendBytes((const uint8_t *)temp,
+												(uint16_t)dataLength);
+						irrPhase =
+							(irrPhase == StageTrackIrrTrigger1Active) ?
+								StageTrackIrrWaitTrigger2 :
+								StageTrackIrrWaitTrigger1;
+						straightTiming = false;
+					}
+				}
+			} else {
+				/* 偏离直线或读取失败会打断 50 ms 计时。 */
+				straightTiming = false;
+			}
+
+			if ((irrPhase == StageTrackIrrTrigger1Active) ||
+				(irrPhase == StageTrackIrrTrigger2Active)) {
+				char temp[STAGE_RUNNER_DATA_TEXT_SIZE];
+				int dataLength;
+
+				if (irrPhase == StageTrackIrrTrigger1Active) {
+					dataLength = snprintf(temp, sizeof(temp),
+									  "%.4f,%.2f\r\n", -0.01f, 0.0f);
+				} else {
+					dataLength = snprintf(temp, sizeof(temp),
+									  "%.4f,%.2f\r\n", 0.015f, 0.0f);
+				}
+
+				if ((dataLength > 0) &&
+					(dataLength < (int)sizeof(temp))) {
+					MaixCamSerial_SendBytes((const uint8_t *)temp,
+											(uint16_t)dataLength);
+				}
+			}
+		}
 
 		if (StageRunner_HandleTrackingSpeed(nowTime, irr)) {
 			shouldStopRun = true;
@@ -1271,6 +1404,7 @@ bool StageRunner_Update(uint32_t nowTime) {
 		if (StageFlag == 0) {
 			MotorRuntime_SetTargetWheelMmps(StageSpeed, StageSpeed);
 			MotorRuntime_ResetDistance();
+			runningTime = lastStageTime;
 			StageFlag++;
 		}
 		if (StageFlag > 0) {

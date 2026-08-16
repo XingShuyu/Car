@@ -88,6 +88,7 @@ static const StageCommand command1[] = {
 static const StageCommand command2[] = {
 	STAGE_CMD_NUM(StageCross, 600),
 	STAGE_CMD(StageGlide),
+	STAGE_CMD(StageBizz),
 	STAGE_CMD(StageStop),
 };
 
